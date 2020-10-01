@@ -17,15 +17,16 @@ fn main() {
         .add_startup_system(start_game_system.system())
         .add_system(start_pause_game_system.system())
         .add_system(ball_collision_system.system())
-        .add_system(ball_movement_system.system())
-        .add_system(ball_rotation_system.system())
-        .add_system(paddle_movement_system.system())
-        .add_system(scoreboard_system.system())
-        .add_system(fps_system.system())
-        .add_system(despawn_system.system())
-        .add_system(check_game_state_system.system())
-        .add_system(render_game_state_text_system.system())
-        .add_system(end_game_system.system())
+        .add_stage_after("update", "do_things")
+        .add_system_to_stage("do_things", ball_movement_system.system())
+        .add_system_to_stage("do_things", ball_rotation_system.system())
+        .add_system_to_stage("do_things", paddle_movement_system.system())
+        .add_system_to_stage("do_things", scoreboard_system.system())
+        .add_system_to_stage("do_things", fps_system.system())
+        .add_system_to_stage("do_things", despawn_system.system())
+        .add_system_to_stage("do_things", check_game_state_system.system())
+        .add_system_to_stage("do_things", render_game_state_text_system.system())
+        .add_system_to_stage("do_things", end_game_system.system())
         .run();
 }
 
@@ -67,18 +68,18 @@ fn collide(
     {
         let (x_collision, x_collision_site) = if a_max_prev.x() < b_min.x() && a_max.x() > b_min.x()
         {
-            (CollisionX::Left, b_min.x())
+            (CollisionX::Left, b_min.x() - ball_size.x() / 2.0)
         } else if a_min_prev.x() > b_max.x() && a_min.x() < b_max.x() {
-            (CollisionX::Right, b_max.x())
+            (CollisionX::Right, b_max.x() + ball_size.x() / 2.0)
         } else {
             (CollisionX::None, 0.0)
         };
 
         let (y_collision, y_collision_site) = if a_max_prev.y() < b_min.y() && a_max.y() > b_min.y()
         {
-            (CollisionY::Bottom, b_min.y())
+            (CollisionY::Bottom, b_min.y() - ball_size.y() / 2.0)
         } else if a_min_prev.y() > b_max.y() && a_min.y() < b_max.y() {
-            (CollisionY::Top, b_max.y())
+            (CollisionY::Top, b_max.y() + ball_size.y() / 2.0)
         } else {
             (CollisionY::None, 0.0)
         };
@@ -529,6 +530,7 @@ fn ball_movement_system(
                 },
             };
             if let Some((midpoint, flip_x, flip_y)) = handle_collision {
+                println!("bounce, before {:?}, {}, {}", translation.0, delta_seconds, midpoint);
                 // half move
                 translation.0 += ball.velocity * delta_seconds * midpoint;
                 // flip velocities
@@ -538,11 +540,16 @@ fn ball_movement_system(
                 if flip_y {
                     *ball.velocity.y_mut() = -ball.velocity.y();
                 }
+                // println!("bounce, mid {:?}, {}, {}", translation.0, delta_seconds, midpoint);
                 // finish the move
                 translation.0 += ball.velocity * delta_seconds * (1.0 - midpoint);
+                // println!("bounce, after {:?}, {}, {}", translation.0, delta_seconds, midpoint);
             } else {
+                // println!("normal, before {:?}, {}", translation.0, delta_seconds);
                 translation.0 += ball.velocity * delta_seconds;
+                // println!("normal, after {:?}, {}", translation.0, delta_seconds);
             }
+            ball.collided = None;
         }
     }
 }
@@ -593,14 +600,14 @@ fn ball_collision_system(
                             } else {
                                 Spin::Clockwise
                             };
-                            if (ball_translation.0.x() < translation.0.x()
-                                && ball.velocity.x() > 0.0)
-                                || (ball_translation.0.x() > translation.0.x()
-                                    && ball.velocity.x() < 0.0)
-                            {
-                                *ball.velocity.x_mut() = -ball.velocity.x();
-                            };
-                            *ball.velocity.y_mut() = -ball.velocity.y();
+                            // if (ball_translation.0.x() < translation.0.x()
+                            //     && ball.velocity.x() > 0.0)
+                            //     || (ball_translation.0.x() > translation.0.x()
+                            //         && ball.velocity.x() < 0.0)
+                            // {
+                            //     *ball.velocity.x_mut() = -ball.velocity.x();
+                            // };
+                            // *ball.velocity.y_mut() = -ball.velocity.y();
                         }
                     } else if let Collider::BottomWall = *collider {
                         *game_state = GameState::Lose;
@@ -614,17 +621,17 @@ fn ball_collision_system(
                         // reflect the ball when it collides
                         // only reflect if the ball's velocity is going in the opposite direction of the collision
                         // reflect velocity on the x-axis if we hit something on the x-axis
-                        if (collision.x.0 == CollisionX::Left && ball.velocity.x() > 0.0)
-                            || (collision.x.0 == CollisionX::Right && ball.velocity.x() < 0.0)
-                        {
-                            *ball.velocity.x_mut() = -ball.velocity.x();
-                        }
+                        // if (collision.x.0 == CollisionX::Left && ball.velocity.x() > 0.0)
+                        //     || (collision.x.0 == CollisionX::Right && ball.velocity.x() < 0.0)
+                        // {
+                        //     *ball.velocity.x_mut() = -ball.velocity.x();
+                        // }
                         // reflect velocity on the y-axis if we hit something on the y-axis
-                        if (collision.y.0 == CollisionY::Bottom && ball.velocity.y() > 0.0)
-                            || (collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0)
-                        {
-                            *ball.velocity.y_mut() = -ball.velocity.y();
-                        }
+                        // if (collision.y.0 == CollisionY::Bottom && ball.velocity.y() > 0.0)
+                        //     || (collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0)
+                        // {
+                        //     *ball.velocity.y_mut() = -ball.velocity.y();
+                        // }
                     }
 
                     ball.collided = Some((collision, *collider));

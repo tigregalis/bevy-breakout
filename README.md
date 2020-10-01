@@ -1,1 +1,3 @@
 # bevy-breakout
+
+`cargo run`
