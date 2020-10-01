@@ -1,6 +1,6 @@
 gameplay
 - [ ] implement change in direction based on position that ball strikes paddle
-- [ ] change collision detection - extrapolate next-frame position from bounce site
+- [x] change collision detection - extrapolate next-frame position from bounce site
   - assuming collision on left
   - because the movement is linear
   - `(x_min_brick - x_max_ball_before)/(x_max_ball_after - x_max_ball_before)` = 

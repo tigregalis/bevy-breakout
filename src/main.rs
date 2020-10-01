@@ -17,16 +17,15 @@ fn main() {
         .add_startup_system(start_game_system.system())
         .add_system(start_pause_game_system.system())
         .add_system(ball_collision_system.system())
-        .add_stage_after("update", "do_things")
-        .add_system_to_stage("do_things", ball_movement_system.system())
-        .add_system_to_stage("do_things", ball_rotation_system.system())
-        .add_system_to_stage("do_things", paddle_movement_system.system())
-        .add_system_to_stage("do_things", scoreboard_system.system())
-        .add_system_to_stage("do_things", fps_system.system())
-        .add_system_to_stage("do_things", despawn_system.system())
-        .add_system_to_stage("do_things", check_game_state_system.system())
-        .add_system_to_stage("do_things", render_game_state_text_system.system())
-        .add_system_to_stage("do_things", end_game_system.system())
+        .add_system(ball_movement_system.system())
+        .add_system(ball_rotation_system.system())
+        .add_system(paddle_movement_system.system())
+        .add_system(scoreboard_system.system())
+        .add_system(fps_system.system())
+        .add_system(despawn_system.system())
+        .add_system(check_game_state_system.system())
+        .add_system(render_game_state_text_system.system())
+        .add_system(end_game_system.system())
         .run();
 }
 
@@ -117,7 +116,6 @@ const DESPAWN_TIME: f32 = 5.0;
 //     // mouse_axis_binding: Option<HashMap<Axis, String>>,
 // }
 
-//T: unique component
 struct Paddle {
     speed: f32,
 }
@@ -453,7 +451,7 @@ fn paddle_movement_system(
 
             // bound the paddle within the walls
             // *translation.0.x_mut() = f32::max(-380.0, f32::min(380.0, translation.0.x()));
-            // paddle with is 120, half of which is 60
+            // paddle width is 120, half of which is 60
             *translation.0.x_mut() = f32::max(-440.0, f32::min(440.0, translation.0.x()));
         }
     }
@@ -467,7 +465,7 @@ fn ball_movement_system(
     if *game_state == GameState::Playing {
         // clamp the timestep to stop the ball from escaping when the game starts
         let delta_seconds = f32::min(0.2, time.delta_seconds);
-        
+
         for (mut ball, mut translation) in &mut ball_query.iter() {
             // either we continue in the current direction with current velocity
             // or we take two moves with flips, so we need a midpoint, flipx and flipy
@@ -483,12 +481,12 @@ fn ball_movement_system(
                         let x_collision_site = &collision.x.1;
                         let x_start = start.x();
                         let x_extrapolated = extrapolated.x();
-                        (x_collision_site - x_start)/(x_extrapolated - x_start)
+                        (x_collision_site - x_start) / (x_extrapolated - x_start)
                     } else if y_collided {
                         let y_collision_site = &collision.y.1;
                         let y_start = start.y();
                         let y_extrapolated = extrapolated.y();
-                        (y_collision_site - y_start)/(y_extrapolated - y_start)
+                        (y_collision_site - y_start) / (y_extrapolated - y_start)
                     } else {
                         0.0
                     };
@@ -496,10 +494,8 @@ fn ball_movement_system(
                     let mut flip_y = false;
                     if let Collider::Paddle = collider {
                         if collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0 {
-                            if (ball.spin == Spin::CounterCw
-                                && ball.velocity.x() > 0.0)
-                                || (ball.spin == Spin::Clockwise
-                                    && ball.velocity.x() < 0.0)
+                            if (ball.spin == Spin::CounterCw && ball.velocity.x() > 0.0)
+                                || (ball.spin == Spin::Clockwise && ball.velocity.x() < 0.0)
                             {
                                 // *ball.velocity.x_mut() = -ball.velocity.x(); // FlipX
                                 flip_x = true;
@@ -527,10 +523,9 @@ fn ball_movement_system(
                         }
                     };
                     Some((midpoint, flip_x, flip_y))
-                },
+                }
             };
             if let Some((midpoint, flip_x, flip_y)) = handle_collision {
-                println!("bounce, before {:?}, {}, {}", translation.0, delta_seconds, midpoint);
                 // half move
                 translation.0 += ball.velocity * delta_seconds * midpoint;
                 // flip velocities
@@ -540,14 +535,10 @@ fn ball_movement_system(
                 if flip_y {
                     *ball.velocity.y_mut() = -ball.velocity.y();
                 }
-                // println!("bounce, mid {:?}, {}, {}", translation.0, delta_seconds, midpoint);
                 // finish the move
                 translation.0 += ball.velocity * delta_seconds * (1.0 - midpoint);
-                // println!("bounce, after {:?}, {}, {}", translation.0, delta_seconds, midpoint);
             } else {
-                // println!("normal, before {:?}, {}", translation.0, delta_seconds);
                 translation.0 += ball.velocity * delta_seconds;
-                // println!("normal, after {:?}, {}", translation.0, delta_seconds);
             }
             ball.collided = None;
         }
@@ -588,26 +579,13 @@ fn ball_collision_system(
                     &ball.velocity,
                     time.delta_seconds,
                 ) {
-                    // println!(
-                    //     "ball collided with {} ({:?}) at {:?}",
-                    //     name.0, collider, collision
-                    // );
                     if let Collider::Paddle = *collider {
                         if collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0 {
-                            // println!("ball {}, {}", ball_translation.0.x(), translation.0.x());
                             ball.spin = if ball_translation.0.x() < translation.0.x() {
                                 Spin::CounterCw
                             } else {
                                 Spin::Clockwise
                             };
-                            // if (ball_translation.0.x() < translation.0.x()
-                            //     && ball.velocity.x() > 0.0)
-                            //     || (ball_translation.0.x() > translation.0.x()
-                            //         && ball.velocity.x() < 0.0)
-                            // {
-                            //     *ball.velocity.x_mut() = -ball.velocity.x();
-                            // };
-                            // *ball.velocity.y_mut() = -ball.velocity.y();
                         }
                     } else if let Collider::BottomWall = *collider {
                         *game_state = GameState::Lose;
@@ -621,24 +599,12 @@ fn ball_collision_system(
                         // reflect the ball when it collides
                         // only reflect if the ball's velocity is going in the opposite direction of the collision
                         // reflect velocity on the x-axis if we hit something on the x-axis
-                        // if (collision.x.0 == CollisionX::Left && ball.velocity.x() > 0.0)
-                        //     || (collision.x.0 == CollisionX::Right && ball.velocity.x() < 0.0)
-                        // {
-                        //     *ball.velocity.x_mut() = -ball.velocity.x();
-                        // }
-                        // reflect velocity on the y-axis if we hit something on the y-axis
-                        // if (collision.y.0 == CollisionY::Bottom && ball.velocity.y() > 0.0)
-                        //     || (collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0)
-                        // {
-                        //     *ball.velocity.y_mut() = -ball.velocity.y();
-                        // }
                     }
 
                     ball.collided = Some((collision, *collider));
 
                     // break;
                 }
-                // }
             }
         }
     }
