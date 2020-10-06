@@ -2,6 +2,8 @@ use std::f32::consts::{FRAC_PI_4, PI};
 
 use bevy::{prelude::*, render::pass::ClearColor};
 
+use rand::random;
+
 // use std::collections::HashMap;
 
 // use serde::{Serialize, Deserialize};
@@ -17,6 +19,7 @@ fn main() {
         .add_startup_system(start_game_system.system())
         .add_system(start_pause_game_system.system())
         .add_system(ball_collision_system.system())
+        .add_system(change_color_system.system())
         .add_system(ball_movement_system.system())
         .add_system(ball_rotation_system.system())
         .add_system(paddle_movement_system.system())
@@ -125,7 +128,7 @@ struct Ball {
     velocity: Vec3,
     rotation: f32,
     rotational_velocity: f32,
-    collided: Option<(WillCollide, Collider)>,
+    collided: Option<(WillCollide, Collider, Color)>,
     spin: Spin,
 }
 
@@ -323,7 +326,7 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
     commands
         // paddle
         .spawn(SpriteComponents {
-            material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),
+            material: materials.add(Color::BLACK.into()),
             translation: Translation(Vec3::new(0.0, -215.0, 0.0)),
             sprite: Sprite::new(Vec2::new(120.0, 30.0)),
             ..Default::default()
@@ -334,7 +337,7 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
         .with(Name("Paddle".into()))
         // ball
         .spawn(SpriteComponents {
-            material: materials.add(Color::rgb(0.8, 0.2, 0.2).into()),
+            material: materials.add(Color::WHITE.into()),
             translation: Translation(Vec3::new(0.0, -50.0, 1.0)),
             sprite: Sprite::new(Vec2::new(30.0, 30.0)),
             rotation: Rotation::from_rotation_z(FRAC_PI_4), // 45 degrees
@@ -367,10 +370,12 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
                 y_position,
                 0.0,
             ) + bricks_offset;
+
+            let [r, g, b] = random::<[u8; 3]>();
             commands
                 // brick
                 .spawn(SpriteComponents {
-                    material: materials.add(Color::rgb(0.2, 0.2, 0.8).into()),
+                    material: materials.add(Color::rgb_u8(r, g, b).into()),
                     sprite: Sprite::new(brick_size),
                     translation: Translation(brick_position),
                     draw: Draw {
@@ -471,7 +476,7 @@ fn ball_movement_system(
             // or we take two moves with flips, so we need a midpoint, flipx and flipy
             let handle_collision = match &ball.collided {
                 None => None,
-                Some((collision, collider)) => {
+                Some((collision, collider, _)) => {
                     let start = translation.0;
                     let extrapolated = start + ball.velocity * delta_seconds;
                     // check if x is a collision first
@@ -497,10 +502,8 @@ fn ball_movement_system(
                             if (ball.spin == Spin::CounterCw && ball.velocity.x() > 0.0)
                                 || (ball.spin == Spin::Clockwise && ball.velocity.x() < 0.0)
                             {
-                                // *ball.velocity.x_mut() = -ball.velocity.x(); // FlipX
                                 flip_x = true;
                             };
-                            // *ball.velocity.y_mut() = -ball.velocity.y(); // FlipY
                             flip_y = true;
                         }
                     // }
@@ -511,14 +514,12 @@ fn ball_movement_system(
                         if (collision.x.0 == CollisionX::Left && ball.velocity.x() > 0.0)
                             || (collision.x.0 == CollisionX::Right && ball.velocity.x() < 0.0)
                         {
-                            // *ball.velocity.x_mut() = -ball.velocity.x(); // FlipX
                             flip_x = true;
                         }
                         // reflect velocity on the y-axis if we hit something on the y-axis
                         if (collision.y.0 == CollisionY::Bottom && ball.velocity.y() > 0.0)
                             || (collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0)
                         {
-                            // *ball.velocity.y_mut() = -ball.velocity.y(); // FlipY
                             flip_y = true;
                         }
                     };
@@ -561,15 +562,24 @@ fn ball_collision_system(
     mut commands: Commands,
     time: Res<Time>,
     mut game_state: ResMut<GameState>,
+    materials: Res<Assets<ColorMaterial>>,
     mut ball_query: Query<(&mut Ball, &Translation, &Sprite)>,
-    mut collider_query: Query<(Entity, &Collider, &Translation, &Sprite, &Name)>,
+    mut collider_query: Query<(
+        Entity,
+        &Collider,
+        &Translation,
+        &Sprite,
+        &Name,
+        &Handle<ColorMaterial>,
+    )>,
 ) {
     if *game_state == GameState::Playing {
         for (mut ball, ball_translation, sprite) in &mut ball_query.iter() {
             let ball_size = sprite.size;
 
             // check collision with walls, bricks and paddles
-            for (collider_entity, collider, translation, sprite, name) in &mut collider_query.iter()
+            for (collider_entity, collider, translation, sprite, _name, material_handle) in
+                &mut collider_query.iter()
             {
                 if let Some(collision) = collide(
                     ball_translation.0,
@@ -595,15 +605,45 @@ fn ball_collision_system(
                             commands.insert_one(collider_entity, ToBeDespawned(DESPAWN_TIME));
                             commands.remove_one::<Collider>(collider_entity);
                         }
-
-                        // reflect the ball when it collides
-                        // only reflect if the ball's velocity is going in the opposite direction of the collision
-                        // reflect velocity on the x-axis if we hit something on the x-axis
                     }
 
-                    ball.collided = Some((collision, *collider));
+                    let color = materials.get(&material_handle).unwrap().color;
+                    ball.collided = Some((collision, *collider, color));
 
                     // break;
+                }
+            }
+        }
+    }
+}
+
+fn change_color_system(
+    game_state: Res<GameState>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut ball_query: Query<(&Ball, &Handle<ColorMaterial>)>,
+    mut paddle_query: Query<(&Paddle, &Handle<ColorMaterial>)>,
+) {
+    if *game_state != GameState::Paused {
+        for (ball, ball_material_handle) in &mut ball_query.iter() {
+            if let Some((_, collider, new_color)) = ball.collided {
+                let ball_material = materials.get_mut(&ball_material_handle).unwrap();
+                let old_color: [f32; 4] = ball_material.color.into();
+                let old_color: Vec4 = old_color.into();
+                match collider {
+                    Collider::Brick => {
+                        let new_color: [f32; 4] = new_color.into();
+                        let new_color: Vec4 = new_color.into();
+                        ball_material.color = old_color.lerp(new_color, 0.4).into();
+                    }
+                    Collider::BottomWall => {}
+                    Collider::OtherWall => {}
+                    Collider::Paddle => {
+                        for (_paddle, paddle_material_handle) in &mut paddle_query.iter() {
+                            let paddle_material =
+                                materials.get_mut(&paddle_material_handle).unwrap();
+                            paddle_material.color = old_color.into();
+                        }
+                    }
                 }
             }
         }
@@ -618,16 +658,30 @@ fn despawn_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut despawn_query: Query<(Entity, &mut ToBeDespawned, &Handle<ColorMaterial>)>,
 ) {
+    // let white: [f32; 4] = Color::WHITE.into();
+    // let white: Vec4 = white.into();
+    let rgb = Vec4::new(1.0, 1.0, 1.0, 0.0);
     if *game_state != GameState::Paused {
         for (entity, mut despawn_time, material_handle) in &mut despawn_query.iter() {
             if despawn_time.0 == DESPAWN_TIME {
                 scoreboard.score += 1;
+                let material = materials.get_mut(&material_handle).unwrap();
+                // let color: [f32; 4] = material.color.into();
+                // let color: Vec4 = color.into();
+                material.color =
+                    // Color::rgba(1.0, 1.0, 1.0, 1.0) * (white - color);
+                    // (white - color).into();
+                    Color::WHITE;
             }
             despawn_time.0 -= time.delta_seconds;
             if despawn_time.0 > 0.0 {
                 let material = materials.get_mut(&material_handle).unwrap();
                 // material.color = Color::rgb(1.0, 1.0, 1.0) * Vec3::new(0.7, 0.7, 0.7).lerp(Vec3::new(0.2, 0.2, 0.8), despawn_time.0 / DESPAWN_TIME);
-                material.color = Color::rgba(0.2, 0.2, 0.8, despawn_time.0 / DESPAWN_TIME);
+                // material.color = Color::rgba(0.8, 0.2, 0.8, despawn_time.0 / DESPAWN_TIME);
+                let color: [f32; 4] = material.color.into();
+                let color: Vec4 = color.into();
+                material.color =
+                    (color * rgb + Vec4::new(0.0, 0.0, 0.0, despawn_time.0 / DESPAWN_TIME)).into();
             } else {
                 commands.despawn(entity);
             }
