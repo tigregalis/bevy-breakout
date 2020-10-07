@@ -123,18 +123,19 @@ struct Paddle {
     speed: f32,
 }
 
-//T: unique component
+#[derive(Debug)]
 struct Ball {
     velocity: Vec3,
     rotation: f32,
     rotational_velocity: f32,
     collided: Option<(WillCollide, Collider, Color)>,
     spin: Spin,
+    last_paddle_offset: f32,
 }
 
 struct GameStateText;
 
-#[derive(Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 enum Spin {
     Clockwise,
     CounterCw,
@@ -349,6 +350,7 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
             rotation: FRAC_PI_4,
             rotational_velocity: 2.0 * PI, // radians per second
             spin: Spin::Clockwise,
+            last_paddle_offset: 0.0,
         })
         .with(DespawnOnEnd)
         .with(Name("Ball".into()));
@@ -401,6 +403,8 @@ fn start_pause_game_system(mut game_state: ResMut<GameState>, keyboard_input: Re
             GameState::Win => GameState::Restarting,
             GameState::Lose => GameState::Restarting,
         }
+    } else if keyboard_input.just_released(KeyCode::R) {
+        *game_state = GameState::Restarting;
     }
 }
 
@@ -505,6 +509,16 @@ fn ball_movement_system(
                                 flip_x = true;
                             };
                             flip_y = true;
+                            // dbg!(ball.last_paddle_offset / 75.0 * PI);
+                            let magnitude = ball.velocity.length();
+                            // let angle = Vec3::unit_x().angle_between(-ball.velocity);
+                            let angle = ball.last_paddle_offset / 75.0 * PI;
+                            dbg!(Quat::from_rotation_z(angle).x());
+                            // at 0 offset, i want unit y
+                            // at -75 offset, i want negative unit x
+                            // at 75 offset, i want unit x
+                            dbg!(angle, magnitude);
+                            // max offset is half the width of the paddle and half the width of the ball
                         }
                     // }
                     } else {
@@ -596,6 +610,7 @@ fn ball_collision_system(
                             } else {
                                 Spin::Clockwise
                             };
+                            ball.last_paddle_offset = ball_translation.0.x() - translation.0.x();
                         }
                     } else if let Collider::BottomWall = *collider {
                         *game_state = GameState::Lose;
