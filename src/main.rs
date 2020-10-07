@@ -317,9 +317,9 @@ fn end_game_system(
         for (entity, _) in &mut despawn_query.iter() {
             commands.despawn(entity);
         }
-        *game_state = GameState::Starting;
         scoreboard.score = 0;
         start_game_system(commands, materials);
+        *game_state = GameState::Starting;
     }
 }
 
@@ -345,7 +345,25 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
             ..Default::default()
         })
         .with(Ball {
-            velocity: 400.0 * Vec3::new(0.5, -0.5, 0.0).normalize(),
+            velocity: 400.0 * Vec3::new(1.0, -1.0, 0.0).normalize(),
+            collided: None,
+            rotation: FRAC_PI_4,
+            rotational_velocity: 2.0 * PI, // radians per second
+            spin: Spin::Clockwise,
+            last_paddle_offset: 0.0,
+        })
+        .with(DespawnOnEnd)
+        .with(Name("Ball".into()))
+        // ball
+        .spawn(SpriteComponents {
+            material: materials.add(Color::WHITE.into()),
+            translation: Translation(Vec3::new(0.0, -30.0, 1.0)),
+            sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+            rotation: Rotation::from_rotation_z(FRAC_PI_4), // 45 degrees
+            ..Default::default()
+        })
+        .with(Ball {
+            velocity: 400.0 * Vec3::new(1.0, -1.0, 0.0).normalize(),
             collided: None,
             rotation: FRAC_PI_4,
             rotational_velocity: 2.0 * PI, // radians per second
@@ -458,10 +476,9 @@ fn paddle_movement_system(
 
             *translation.0.x_mut() += time.delta_seconds * direction * paddle.speed;
 
-            // bound the paddle within the walls
-            // *translation.0.x_mut() = f32::max(-380.0, f32::min(380.0, translation.0.x()));
-            // paddle width is 120, half of which is 60
-            *translation.0.x_mut() = f32::max(-440.0, f32::min(440.0, translation.0.x()));
+            // bound the paddle partially within the walls
+            // paddle width is 120, arena bounds are -380 to 380
+            *translation.0.x_mut() = translation.0.x().max(-500.0).min(500.0);
         }
     }
 }
@@ -477,10 +494,10 @@ fn ball_movement_system(
 
         for (mut ball, mut translation) in &mut ball_query.iter() {
             // either we continue in the current direction with current velocity
-            // or we take two moves with flips, so we need a midpoint, flipx and flipy
+            // or we take two moves with flips, so we need a midpoint, and a new direction
             let handle_collision = match &ball.collided {
                 None => None,
-                Some((collision, collider, _)) => {
+                Some((collision, collider, _color)) => {
                     let start = translation.0;
                     let extrapolated = start + ball.velocity * delta_seconds;
                     // check if x is a collision first
@@ -499,57 +516,45 @@ fn ball_movement_system(
                     } else {
                         0.0
                     };
-                    let mut flip_x = false;
-                    let mut flip_y = false;
-                    if let Collider::Paddle = collider {
+                    let new_velocity = if let Collider::Paddle = collider {
                         if collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0 {
-                            if (ball.spin == Spin::CounterCw && ball.velocity.x() > 0.0)
-                                || (ball.spin == Spin::Clockwise && ball.velocity.x() < 0.0)
-                            {
-                                flip_x = true;
-                            };
-                            flip_y = true;
-                            // dbg!(ball.last_paddle_offset / 75.0 * PI);
                             let magnitude = ball.velocity.length();
-                            // let angle = Vec3::unit_x().angle_between(-ball.velocity);
-                            let angle = ball.last_paddle_offset / 75.0 * PI;
-                            dbg!(Quat::from_rotation_z(angle).x());
-                            // at 0 offset, i want unit y
-                            // at -75 offset, i want negative unit x
-                            // at 75 offset, i want unit x
-                            dbg!(angle, magnitude);
-                            // max offset is half the width of the paddle and half the width of the ball
+                            // max offset is half the width of the paddle (60) plus half the width of the ball (15)
+                            let angle = ball.last_paddle_offset.max(-75.0).min(75.0) / 75.0
+                                * (PI / 180.0 * 85.0);
+                            let x = angle.sin();
+                            let y = angle.cos();
+                            let new_velocity = Vec3::new(x, y, 0.0) * magnitude;
+                            new_velocity
+                        } else {
+                            ball.velocity
                         }
-                    // }
                     } else {
+                        let mut new_velocity = ball.velocity.clone();
                         // reflect the ball when it collides
                         // only reflect if the ball's velocity is going in the opposite direction of the collision
                         // reflect velocity on the x-axis if we hit something on the x-axis
                         if (collision.x.0 == CollisionX::Left && ball.velocity.x() > 0.0)
                             || (collision.x.0 == CollisionX::Right && ball.velocity.x() < 0.0)
                         {
-                            flip_x = true;
+                            *new_velocity.x_mut() *= -1.0;
                         }
                         // reflect velocity on the y-axis if we hit something on the y-axis
                         if (collision.y.0 == CollisionY::Bottom && ball.velocity.y() > 0.0)
                             || (collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0)
                         {
-                            flip_y = true;
+                            *new_velocity.y_mut() *= -1.0;
                         }
+                        new_velocity
                     };
-                    Some((midpoint, flip_x, flip_y))
+                    Some((midpoint, new_velocity))
                 }
             };
-            if let Some((midpoint, flip_x, flip_y)) = handle_collision {
+            if let Some((midpoint, new_velocity)) = handle_collision {
                 // half move
                 translation.0 += ball.velocity * delta_seconds * midpoint;
-                // flip velocities
-                if flip_x {
-                    *ball.velocity.x_mut() = -ball.velocity.x();
-                }
-                if flip_y {
-                    *ball.velocity.y_mut() = -ball.velocity.y();
-                }
+                // update velocity
+                ball.velocity = new_velocity;
                 // finish the move
                 translation.0 += ball.velocity * delta_seconds * (1.0 - midpoint);
             } else {
@@ -572,12 +577,17 @@ fn fps_system(time: Res<Time>, mut query: Query<(&mut Text, &Framerate)>) {
     }
 }
 
+fn color_to_vec4(color: Color) -> Vec4 {
+    let color: [f32; 4] = color.into();
+    color.into()
+}
+
 fn ball_collision_system(
     mut commands: Commands,
     time: Res<Time>,
     mut game_state: ResMut<GameState>,
     materials: Res<Assets<ColorMaterial>>,
-    mut ball_query: Query<(&mut Ball, &Translation, &Sprite)>,
+    mut ball_query: Query<(Entity, &mut Ball, &Translation, &Sprite)>,
     mut collider_query: Query<(
         Entity,
         &Collider,
@@ -588,7 +598,11 @@ fn ball_collision_system(
     )>,
 ) {
     if *game_state == GameState::Playing {
-        for (mut ball, ball_translation, sprite) in &mut ball_query.iter() {
+        let mut ball_count = 0;
+        for (..) in &mut ball_query.iter() {
+            ball_count += 1;
+        }
+        for (ball_entity, mut ball, ball_translation, sprite) in &mut ball_query.iter() {
             let ball_size = sprite.size;
 
             // check collision with walls, bricks and paddles
@@ -613,7 +627,13 @@ fn ball_collision_system(
                             ball.last_paddle_offset = ball_translation.0.x() - translation.0.x();
                         }
                     } else if let Collider::BottomWall = *collider {
-                        *game_state = GameState::Lose;
+                        commands.insert_one(ball_entity, ToBeDespawned(DESPAWN_TIME));
+                        commands.remove_one::<Ball>(ball_entity);
+                        ball_count -= 1;
+                        if ball_count <= 0 {
+                            *game_state = GameState::Lose;
+                            return;
+                        }
                     } else {
                         // scorable colliders should be despawned and increment the scoreboard on collision
                         if let Collider::Brick = *collider {
@@ -624,8 +644,6 @@ fn ball_collision_system(
 
                     let color = materials.get(&material_handle).unwrap().color;
                     ball.collided = Some((collision, *collider, color));
-
-                    // break;
                 }
             }
         }
@@ -642,21 +660,30 @@ fn change_color_system(
         for (ball, ball_material_handle) in &mut ball_query.iter() {
             if let Some((_, collider, new_color)) = ball.collided {
                 let ball_material = materials.get_mut(&ball_material_handle).unwrap();
-                let old_color: [f32; 4] = ball_material.color.into();
-                let old_color: Vec4 = old_color.into();
+                let old_color = color_to_vec4(ball_material.color);
                 match collider {
                     Collider::Brick => {
                         let new_color: [f32; 4] = new_color.into();
                         let new_color: Vec4 = new_color.into();
-                        ball_material.color = old_color.lerp(new_color, 0.4).into();
+                        ball_material.color = old_color.lerp(new_color, 0.5).into();
                     }
                     Collider::BottomWall => {}
                     Collider::OtherWall => {}
                     Collider::Paddle => {
-                        for (_paddle, paddle_material_handle) in &mut paddle_query.iter() {
-                            let paddle_material =
-                                materials.get_mut(&paddle_material_handle).unwrap();
-                            paddle_material.color = old_color.into();
+                        if let Some((
+                            WillCollide {
+                                y: (CollisionY::Top, _),
+                                ..
+                            },
+                            _collider,
+                            _color,
+                        )) = ball.collided
+                        {
+                            for (_paddle, paddle_material_handle) in &mut paddle_query.iter() {
+                                let paddle_material =
+                                    materials.get_mut(&paddle_material_handle).unwrap();
+                                paddle_material.color = old_color.into();
+                            }
                         }
                     }
                 }
@@ -673,28 +700,18 @@ fn despawn_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut despawn_query: Query<(Entity, &mut ToBeDespawned, &Handle<ColorMaterial>)>,
 ) {
-    // let white: [f32; 4] = Color::WHITE.into();
-    // let white: Vec4 = white.into();
     let rgb = Vec4::new(1.0, 1.0, 1.0, 0.0);
     if *game_state != GameState::Paused {
         for (entity, mut despawn_time, material_handle) in &mut despawn_query.iter() {
             if despawn_time.0 == DESPAWN_TIME {
                 scoreboard.score += 1;
                 let material = materials.get_mut(&material_handle).unwrap();
-                // let color: [f32; 4] = material.color.into();
-                // let color: Vec4 = color.into();
-                material.color =
-                    // Color::rgba(1.0, 1.0, 1.0, 1.0) * (white - color);
-                    // (white - color).into();
-                    Color::WHITE;
+                material.color = Color::WHITE;
             }
             despawn_time.0 -= time.delta_seconds;
             if despawn_time.0 > 0.0 {
                 let material = materials.get_mut(&material_handle).unwrap();
-                // material.color = Color::rgb(1.0, 1.0, 1.0) * Vec3::new(0.7, 0.7, 0.7).lerp(Vec3::new(0.2, 0.2, 0.8), despawn_time.0 / DESPAWN_TIME);
-                // material.color = Color::rgba(0.8, 0.2, 0.8, despawn_time.0 / DESPAWN_TIME);
-                let color: [f32; 4] = material.color.into();
-                let color: Vec4 = color.into();
+                let color = color_to_vec4(material.color);
                 material.color =
                     (color * rgb + Vec4::new(0.0, 0.0, 0.0, despawn_time.0 / DESPAWN_TIME)).into();
             } else {
