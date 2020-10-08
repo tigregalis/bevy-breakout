@@ -23,6 +23,7 @@ gameplay
 - [ ] add power-ups that affect the ball and paddle
 - [ ] balls speed up as they hit bricks - the paddle speeds up as well
 - [ ] balls slow down as they hit walls - the paddle slows down as well
+- [ ] at the start, you can choose to release a ball from the paddle
 
 new features
 - [ ] menus
@@ -35,6 +36,7 @@ bugs
   - possibly fixed by setting up multiple collisions in one frame, or setting a precedence
   - our new collision detection is too finicky - if something has already started passing through, it doesn't work
 - [x] when the ball touches the side of the paddle, it changes colour when it shouldn't
+- [ ] if two balls hit the same brick in the same frame, it grants two score
 
 aesthetics
 
@@ -52,3 +54,7 @@ code
 
 - [ ] reorganise logic in systems
 - [ ] reorganise code into modules and maybe plugins
+- [ ] rewrite to use entities instead of copying components
+  - Oh, I see. You can still use queries.
+    If `system_2` has a query like `transform_query: Query<&Transform>` then you can go
+    `transform_query.get::<Transform>(entity)` to pull the Transform for that particular `Entity`."
