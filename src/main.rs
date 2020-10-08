@@ -12,7 +12,7 @@ use rand::random;
 fn main() {
     App::build()
         .add_default_plugins()
-        .add_resource(ClearColor(Color::rgb(0.7, 0.7, 0.7))) // the window's background colour
+        .add_resource(ClearColor(BACKGROUND_COLOR)) // the window's background colour
         .add_resource(Scoreboard { score: 0 })
         .add_resource(GameState::Starting)
         .add_startup_system(setup.system())
@@ -95,6 +95,9 @@ fn collide(
     }
 }
 
+const BACKGROUND_COLOR: Color = Color::rgb(0.7, 0.7, 0.7);
+const DESPAWN_TIME: f32 = 2.0;
+
 #[derive(Debug, PartialEq, Eq)]
 enum CollisionX {
     Left,
@@ -108,16 +111,6 @@ enum CollisionY {
     Bottom,
     None,
 }
-
-const DESPAWN_TIME: f32 = 5.0;
-
-// #[derive(Default, Debug, Serialize, Deserialize)]
-// pub struct ConfigData
-// {
-//     keyboard_key_bindings: HashMap<KeyCode, String>,
-//     // mouse_button_binding: Option<HashMap<MouseButton, String>>,
-//     // mouse_axis_binding: Option<HashMap<Axis, String>>,
-// }
 
 struct Paddle {
     speed: f32,
@@ -141,14 +134,11 @@ enum Spin {
     CounterCw,
 }
 
-//T: global resource
 struct Scoreboard {
     score: usize,
 }
 
 struct Score;
-
-const MAX_SCORE: usize = 20;
 
 struct Framerate;
 
@@ -172,6 +162,8 @@ enum Collider {
     Paddle,
 }
 
+struct Brick(bool);
+
 #[derive(PartialEq, Eq)]
 enum GameState {
     Starting,
@@ -182,7 +174,6 @@ enum GameState {
     Lose,
 }
 
-//T: main startup system
 fn setup(
     mut commands: Commands,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -392,10 +383,11 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
             ) + bricks_offset;
 
             let [r, g, b] = random::<[u8; 3]>();
+            let color = Color::rgb_u8(r, g, b);
             commands
                 // brick
                 .spawn(SpriteComponents {
-                    material: materials.add(Color::rgb_u8(r, g, b).into()),
+                    material: materials.add(color.into()),
                     sprite: Sprite::new(brick_size),
                     translation: Translation(brick_position),
                     draw: Draw {
@@ -405,6 +397,7 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
                     ..Default::default()
                 })
                 .with(Collider::Brick)
+                .with(Brick(true))
                 .with(DespawnOnEnd)
                 .with(Name(format!("Brick {}-{}", row, column).into()));
         }
@@ -443,12 +436,13 @@ fn ball_rotation_system(
 ) {
     if *game_state == GameState::Playing {
         for (mut ball, mut rotation) in &mut query.iter() {
+            let rotational_velocity = ball.velocity.length() / 400.0 * 2.0 * PI;
             match ball.spin {
                 Spin::Clockwise => {
-                    ball.rotation -= ball.rotational_velocity * time.delta_seconds;
+                    ball.rotation -= rotational_velocity * time.delta_seconds;
                 }
                 Spin::CounterCw => {
-                    ball.rotation += ball.rotational_velocity * time.delta_seconds;
+                    ball.rotation += rotational_velocity * time.delta_seconds;
                 }
             }
             ball.rotation = wrap(ball.rotation, 0.0, PI);
@@ -545,6 +539,14 @@ fn ball_movement_system(
                         {
                             *new_velocity.y_mut() *= -1.0;
                         }
+                        let mut magnitude = new_velocity.length();
+                        if let Collider::Brick = collider {
+                            magnitude = (magnitude + 50.0).max(100.0);
+                            new_velocity *= magnitude / new_velocity.length();
+                        } else if let Collider::OtherWall = collider {
+                            magnitude = (magnitude - 25.0).max(100.0);
+                            new_velocity *= magnitude / new_velocity.length();
+                        }
                         new_velocity
                     };
                     Some((midpoint, new_velocity))
@@ -586,8 +588,10 @@ fn ball_collision_system(
     mut commands: Commands,
     time: Res<Time>,
     mut game_state: ResMut<GameState>,
+    mut scoreboard: ResMut<Scoreboard>,
     materials: Res<Assets<ColorMaterial>>,
     mut ball_query: Query<(Entity, &mut Ball, &Translation, &Sprite)>,
+    brick_query: Query<&mut Brick>,
     mut collider_query: Query<(
         Entity,
         &Collider,
@@ -639,6 +643,12 @@ fn ball_collision_system(
                         if let Collider::Brick = *collider {
                             commands.insert_one(collider_entity, ToBeDespawned(DESPAWN_TIME));
                             commands.remove_one::<Collider>(collider_entity);
+                            if let Some(mut brick) =
+                                brick_query.get_mut::<Brick>(collider_entity).ok()
+                            {
+                                brick.0 = false;
+                            }
+                            scoreboard.score += 1;
                         }
                     }
 
@@ -696,7 +706,6 @@ fn despawn_system(
     mut commands: Commands,
     time: Res<Time>,
     game_state: Res<GameState>,
-    mut scoreboard: ResMut<Scoreboard>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut despawn_query: Query<(Entity, &mut ToBeDespawned, &Handle<ColorMaterial>)>,
 ) {
@@ -704,7 +713,6 @@ fn despawn_system(
     if *game_state != GameState::Paused {
         for (entity, mut despawn_time, material_handle) in &mut despawn_query.iter() {
             if despawn_time.0 == DESPAWN_TIME {
-                scoreboard.score += 1;
                 let material = materials.get_mut(&material_handle).unwrap();
                 material.color = Color::WHITE;
             }
@@ -738,8 +746,14 @@ fn render_game_state_text_system(
     }
 }
 
-fn check_game_state_system(mut game_state: ResMut<GameState>, scoreboard: Res<Scoreboard>) {
-    if scoreboard.score == MAX_SCORE && *game_state == GameState::Playing {
+fn check_game_state_system(mut game_state: ResMut<GameState>, mut brick_query: Query<&Brick>) {
+    let mut brick_count = 0;
+    for brick in &mut brick_query.iter() {
+        if brick.0 {
+            brick_count += 1;
+        }
+    }
+    if brick_count == 0 && *game_state == GameState::Playing {
         *game_state = GameState::Win;
     }
 }
