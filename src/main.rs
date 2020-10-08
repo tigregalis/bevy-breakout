@@ -436,13 +436,12 @@ fn ball_rotation_system(
 ) {
     if *game_state == GameState::Playing {
         for (mut ball, mut rotation) in &mut query.iter() {
-            let rotational_velocity = ball.velocity.length() / 400.0 * 2.0 * PI;
             match ball.spin {
                 Spin::Clockwise => {
-                    ball.rotation -= rotational_velocity * time.delta_seconds;
+                    ball.rotation -= ball.rotational_velocity * time.delta_seconds;
                 }
                 Spin::CounterCw => {
-                    ball.rotation += rotational_velocity * time.delta_seconds;
+                    ball.rotation += ball.rotational_velocity * time.delta_seconds;
                 }
             }
             ball.rotation = wrap(ball.rotation, 0.0, PI);
@@ -557,6 +556,7 @@ fn ball_movement_system(
                 translation.0 += ball.velocity * delta_seconds * midpoint;
                 // update velocity
                 ball.velocity = new_velocity;
+                ball.rotational_velocity = new_velocity.length() / 400.0 * 2.0 * PI;
                 // finish the move
                 translation.0 += ball.velocity * delta_seconds * (1.0 - midpoint);
             } else {
