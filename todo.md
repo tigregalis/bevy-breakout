@@ -20,8 +20,12 @@
   - [ ] ball passes through bricks
   - [ ] ball explodes on collision, destroying bricks in an area
   - [ ] ball explodes on collision, releasing smaller balls that have finite number of bounces
+  - [ ] larger paddle
+  - [ ] multiple paddles
+  - [ ] shadow paddle
 - [ ] lives
 - [ ] blink/teleport using double-tap
+  - still needs work
 - [ ] add more brick types
   - [ ] some bricks take multiple hits
   - [ ] some bricks release power ups
@@ -58,6 +62,7 @@
     note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace       
     error: process didn't exit successfully: `target\debug\my_bevy_game.exe` (exit code: 101)
   - something is wrong with the despawn system I'm guessing
+  - believe that `despawn_system` was attempting to despawn the same entities as `end_game_system`, need to test
 
 # aesthetics
 
@@ -71,7 +76,7 @@
 - [ ] position win/lose message in center of screen
   - need to set up UI components properly
 - [ ] instructional text "press R"
-- [ ] speed of spin depending on speed of ball
+- [x] speed of spin depending on speed of ball
 
 # code
 

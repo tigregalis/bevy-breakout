@@ -1,4 +1,7 @@
-use std::f32::consts::{FRAC_PI_4, PI};
+use std::{
+    collections::HashMap,
+    f32::consts::{FRAC_PI_4, PI},
+};
 
 use bevy::{prelude::*, render::pass::ClearColor};
 
@@ -10,13 +13,47 @@ use rand::random;
 
 /// An implementation of the classic game "Breakout"
 fn main() {
+    let mut key_stroke_handlers = KeyStrokeHandlers(HashMap::new());
+    key_stroke_handlers.0.insert(
+        Handlers::DoubleTapLeft,
+        KeyStrokeHandler::new(
+            vec![
+                // need to not require a pause
+                // maybe use a queue, then work backwards to see if the queue matches
+                vec![KeyStroke::Pressed(KeyCode::Left)],
+                vec![KeyStroke::NotPressed(KeyCode::Right)],
+                vec![KeyStroke::JustReleased(KeyCode::Left)],
+                vec![KeyStroke::NotPressed(KeyCode::Right)],
+                vec![KeyStroke::JustPressed(KeyCode::Left)],
+            ],
+            0.15,
+            0.15,
+        ),
+    );
+    key_stroke_handlers.0.insert(
+        Handlers::DoubleTapRight,
+        KeyStrokeHandler::new(
+            vec![
+                vec![KeyStroke::Pressed(KeyCode::Right)],
+                vec![KeyStroke::NotPressed(KeyCode::Left)],
+                vec![KeyStroke::JustReleased(KeyCode::Right)],
+                vec![KeyStroke::NotPressed(KeyCode::Left)],
+                vec![KeyStroke::JustPressed(KeyCode::Right)],
+            ],
+            0.15,
+            0.15,
+        ),
+    );
+
     App::build()
         .add_default_plugins()
         .add_resource(ClearColor(BACKGROUND_COLOR)) // the window's background colour
         .add_resource(Scoreboard { score: 0 })
         .add_resource(GameState::Starting)
+        .add_resource(key_stroke_handlers)
         .add_startup_system(setup.system())
         .add_startup_system(start_game_system.system())
+        .add_system(keyboard_system.system())
         .add_system(start_pause_game_system.system())
         .add_system(ball_collision_system.system())
         .add_system(change_color_system.system())
@@ -26,11 +63,19 @@ fn main() {
         .add_system(scoreboard_system.system())
         .add_system(fps_system.system())
         .add_system(despawn_system.system())
-        .add_system(check_game_state_system.system())
+        // .add_system(check_win_condition_system.system())
         .add_system(render_game_state_text_system.system())
         .add_system(end_game_system.system())
         .run();
 }
+
+#[derive(Eq, PartialEq, Hash, Debug)]
+enum Handlers {
+    DoubleTapLeft,
+    DoubleTapRight,
+}
+
+struct KeyStrokeHandlers(HashMap<Handlers, KeyStrokeHandler>);
 
 /// Determine whether two rectangles overlap during a frame.
 ///
@@ -95,9 +140,6 @@ fn collide(
     }
 }
 
-const BACKGROUND_COLOR: Color = Color::rgb(0.7, 0.7, 0.7);
-const DESPAWN_TIME: f32 = 2.0;
-
 #[derive(Debug, PartialEq, Eq)]
 enum CollisionX {
     Left,
@@ -111,6 +153,23 @@ enum CollisionY {
     Bottom,
     None,
 }
+
+#[derive(Debug)]
+struct WillCollide {
+    x: (CollisionX, f32),
+    y: (CollisionY, f32),
+}
+
+#[derive(Debug, Copy, Clone)]
+enum Collider {
+    BottomWall,
+    OtherWall,
+    Brick,
+    Paddle,
+}
+
+const BACKGROUND_COLOR: Color = Color::rgb(0.7, 0.7, 0.7);
+const DESPAWN_TIME: f32 = 2.0;
 
 struct Paddle {
     speed: f32,
@@ -147,20 +206,6 @@ struct ToBeDespawned(f32);
 struct Name(String);
 
 struct DespawnOnEnd;
-
-#[derive(Debug)]
-struct WillCollide {
-    x: (CollisionX, f32),
-    y: (CollisionY, f32),
-}
-
-#[derive(Debug, Copy, Clone)]
-enum Collider {
-    BottomWall,
-    OtherWall,
-    Brick,
-    Paddle,
-}
 
 struct Brick(bool);
 
@@ -284,7 +329,8 @@ fn setup(
             sprite: Sprite::new(Vec2::new(bounds.x() + wall_thickness, wall_thickness)),
             ..Default::default()
         })
-        .with(Collider::BottomWall)
+        // .with(Collider::BottomWall)
+        .with(Collider::OtherWall)
         .with(Name("Bottom wall".into()))
         // top
         .spawn(SpriteComponents {
@@ -404,6 +450,51 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
     }
 }
 
+fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, time: Res<Time>) {
+    let t = time.time_since_startup().as_nanos();
+    #[derive(Debug)]
+    enum Temp {
+        JustPressed,
+        Pressed,
+        JustReleased,
+    }
+    use Temp::*;
+
+    for key in &[
+        KeyCode::Left,
+        KeyCode::Right,
+        KeyCode::Up,
+        KeyCode::Down,
+        KeyCode::LControl,
+        KeyCode::LAlt,
+        KeyCode::RControl,
+        KeyCode::RAlt,
+        KeyCode::Space,
+        KeyCode::R,
+    ] {
+        if keyboard_input.just_pressed(*key) {
+            dbg!(t, JustPressed, *key);
+        }
+        if keyboard_input.pressed(*key) {
+            dbg!(t, Pressed, *key);
+        }
+        if keyboard_input.just_released(*key) {
+            dbg!(t, JustReleased, *key);
+        }
+    }
+
+    // [src\main.rs:464] t = 42619449400
+    // [src\main.rs:464] JustPressed = JustPressed
+    // [src\main.rs:464] *key = RControl
+    // [src\main.rs:467] t = 42619449400
+    // [src\main.rs:467] Pressed = Pressed
+    // [src\main.rs:467] *key = RControl
+    // [src\main.rs:470] t = 42645905900
+    // [src\main.rs:470] JustReleased = JustReleased
+    // [src\main.rs:470] *key = RControl
+    // frame A, justpressed yes + pressed yes(; frame B, pressed yes); frame C, justreleased yes
+}
+
 fn start_pause_game_system(mut game_state: ResMut<GameState>, keyboard_input: Res<Input<KeyCode>>) {
     if keyboard_input.just_released(KeyCode::Space) {
         *game_state = match *game_state {
@@ -454,17 +545,42 @@ fn paddle_movement_system(
     time: Res<Time>,
     game_state: Res<GameState>,
     keyboard_input: Res<Input<KeyCode>>,
+    mut handlers: ResMut<KeyStrokeHandlers>,
     mut query: Query<(&Paddle, &mut Translation)>,
 ) {
     if *game_state == GameState::Playing {
         for (paddle, mut translation) in &mut query.iter() {
             let mut direction = 0.0;
-            if keyboard_input.pressed(KeyCode::Left) {
+            // if keyboard_input.pressed(KeyCode::Left) {
+            //     direction -= 1.0;
+            // }
+
+            // if keyboard_input.pressed(KeyCode::Right) {
+            //     direction += 1.0;
+            // }
+            if KeyStrokeHandler::test_input(
+                &keyboard_input,
+                &vec![KeyStroke::Pressed(KeyCode::Left)],
+            ) {
                 direction -= 1.0;
             }
 
-            if keyboard_input.pressed(KeyCode::Right) {
+            if KeyStrokeHandler::test_input(
+                &keyboard_input,
+                &vec![KeyStroke::Pressed(KeyCode::Right)],
+            ) {
                 direction += 1.0;
+            }
+
+            if let Some(handler) = handlers.0.get_mut(&Handlers::DoubleTapLeft) {
+                if handler.done(&keyboard_input, time.delta_seconds) {
+                    *translation.0.x_mut() -= 180.0;
+                }
+            }
+            if let Some(handler) = handlers.0.get_mut(&Handlers::DoubleTapRight) {
+                if handler.done(&keyboard_input, time.delta_seconds) {
+                    *translation.0.x_mut() += 180.0;
+                }
             }
 
             *translation.0.x_mut() += time.delta_seconds * direction * paddle.speed;
@@ -540,10 +656,10 @@ fn ball_movement_system(
                         }
                         let mut magnitude = new_velocity.length();
                         if let Collider::Brick = collider {
-                            magnitude = (magnitude + 50.0).max(100.0);
+                            magnitude = magnitude + 30.0;
                             new_velocity *= magnitude / new_velocity.length();
                         } else if let Collider::OtherWall = collider {
-                            magnitude = (magnitude - 25.0).max(100.0);
+                            magnitude = (magnitude - 20.0).max(100.0); // minimum velocity is 100
                             new_velocity *= magnitude / new_velocity.length();
                         }
                         new_velocity
@@ -628,6 +744,7 @@ fn ball_collision_system(
                             } else {
                                 Spin::Clockwise
                             };
+                            // TODO: defer this to the movementsystem
                             ball.last_paddle_offset = ball_translation.0.x() - translation.0.x();
                         }
                     } else if let Collider::BottomWall = *collider {
@@ -653,6 +770,7 @@ fn ball_collision_system(
                     }
 
                     let color = materials.get(&material_handle).unwrap().color;
+                    // TODO: store the entity instead of copying the collider and color
                     ball.collided = Some((collision, *collider, color));
                 }
             }
@@ -710,7 +828,7 @@ fn despawn_system(
     mut despawn_query: Query<(Entity, &mut ToBeDespawned, &Handle<ColorMaterial>)>,
 ) {
     let rgb = Vec4::new(1.0, 1.0, 1.0, 0.0);
-    if *game_state != GameState::Paused {
+    if *game_state != GameState::Paused && *game_state != GameState::Restarting {
         for (entity, mut despawn_time, material_handle) in &mut despawn_query.iter() {
             if despawn_time.0 == DESPAWN_TIME {
                 let material = materials.get_mut(&material_handle).unwrap();
@@ -723,6 +841,8 @@ fn despawn_system(
                 material.color =
                     (color * rgb + Vec4::new(0.0, 0.0, 0.0, despawn_time.0 / DESPAWN_TIME)).into();
             } else {
+                // end_game_system (GameState::Restarting) takes precedence on despawning, so that we don't
+                // attempt to despawn the same entity in the same frame (crashes)
                 commands.despawn(entity);
             }
         }
@@ -746,7 +866,7 @@ fn render_game_state_text_system(
     }
 }
 
-fn check_game_state_system(mut game_state: ResMut<GameState>, mut brick_query: Query<&Brick>) {
+fn check_win_condition_system(mut game_state: ResMut<GameState>, mut brick_query: Query<&Brick>) {
     let mut brick_count = 0;
     for brick in &mut brick_query.iter() {
         if brick.0 {
@@ -755,5 +875,79 @@ fn check_game_state_system(mut game_state: ResMut<GameState>, mut brick_query: Q
     }
     if brick_count == 0 && *game_state == GameState::Playing {
         *game_state = GameState::Win;
+    }
+}
+
+#[derive(Debug)]
+enum KeyStroke {
+    JustReleased(KeyCode),
+    JustPressed(KeyCode),
+    Pressed(KeyCode),
+    NotJustReleased(KeyCode),
+    NotJustPressed(KeyCode),
+    NotPressed(KeyCode),
+}
+
+struct KeyStrokeHandler {
+    key_stroke_sequence: Vec<Vec<KeyStroke>>,
+    max_hold: f32,
+    hold_timer: f32,
+    max_pause: f32,
+    pause_timer: f32,
+    index: usize,
+}
+
+impl KeyStrokeHandler {
+    fn new(key_stroke_sequence: Vec<Vec<KeyStroke>>, max_pause: f32, max_hold: f32) -> Self {
+        Self {
+            key_stroke_sequence,
+            max_hold,
+            hold_timer: 0.0,
+            max_pause,
+            pause_timer: 0.0,
+            index: 0,
+        }
+    }
+    fn reset(&mut self) {
+        self.pause_timer = 0.0;
+        self.index = 0;
+    }
+    fn done(&mut self, input: &Res<Input<KeyCode>>, delta_time: f32) -> bool {
+        // after something is just pressed, start the hold timer
+        // after something is just released, start the pause timer
+        // if either timer exceeds their max, reset the sequence
+        // if we match the current expected input
+        if Self::test_input(input, &self.key_stroke_sequence[self.index]) {
+            // start the timer and wait for the next input
+            self.pause_timer = 0.0;
+            self.index += 1;
+            // if there is no next input, make this "done" and reset
+            if self.index >= self.key_stroke_sequence.len() {
+                self.reset();
+                return true;
+            }
+        }
+        // advance the timer
+        self.pause_timer += delta_time;
+        // if the timer reaches max_pause, reset
+        if self.pause_timer > self.max_pause {
+            self.reset();
+        }
+        false
+    }
+    fn test_input(input: &Res<Input<KeyCode>>, key_strokes: &Vec<KeyStroke>) -> bool {
+        for key_stroke in key_strokes {
+            if !(match key_stroke {
+                KeyStroke::JustReleased(key_code) => input.just_released(*key_code),
+                KeyStroke::JustPressed(key_code) => input.just_pressed(*key_code),
+                KeyStroke::Pressed(key_code) => input.pressed(*key_code),
+                KeyStroke::NotJustReleased(key_code) => !input.just_released(*key_code),
+                KeyStroke::NotJustPressed(key_code) => !input.just_pressed(*key_code),
+                KeyStroke::NotPressed(key_code) => !input.pressed(*key_code),
+            }) {
+                return false;
+            };
+        }
+        true
     }
 }
