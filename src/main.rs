@@ -1,9 +1,11 @@
+//! An implementation of the classic game "Breakout"
+
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     f32::consts::{FRAC_PI_4, PI},
 };
 
-use bevy::{prelude::*, render::pass::ClearColor};
+use bevy::prelude::*;
 
 use rand::random;
 
@@ -13,57 +15,28 @@ use rand::random;
 
 /// An implementation of the classic game "Breakout"
 fn main() {
-    let mut key_stroke_handlers = KeyStrokeHandlers(HashMap::new());
-    key_stroke_handlers.0.insert(
-        Handlers::DoubleTapLeft,
-        KeyStrokeHandler::new(
-            vec![
-                // need to not require a pause
-                // maybe use a queue, then work backwards to see if the queue matches
-                vec![KeyStroke::Pressed(KeyCode::Left)],
-                vec![KeyStroke::NotPressed(KeyCode::Right)],
-                vec![KeyStroke::JustReleased(KeyCode::Left)],
-                vec![KeyStroke::NotPressed(KeyCode::Right)],
-                vec![KeyStroke::JustPressed(KeyCode::Left)],
-            ],
-            0.15,
-            0.15,
-        ),
-    );
-    key_stroke_handlers.0.insert(
-        Handlers::DoubleTapRight,
-        KeyStrokeHandler::new(
-            vec![
-                vec![KeyStroke::Pressed(KeyCode::Right)],
-                vec![KeyStroke::NotPressed(KeyCode::Left)],
-                vec![KeyStroke::JustReleased(KeyCode::Right)],
-                vec![KeyStroke::NotPressed(KeyCode::Left)],
-                vec![KeyStroke::JustPressed(KeyCode::Right)],
-            ],
-            0.15,
-            0.15,
-        ),
-    );
-
     App::build()
         .add_default_plugins()
-        .add_resource(ClearColor(BACKGROUND_COLOR)) // the window's background colour
+        .add_resource(ClearColor(Vec4::from(BACKGROUND_COLOR).into())) // the window's background colour
         .add_resource(Scoreboard { score: 0 })
         .add_resource(GameState::Starting)
-        .add_resource(key_stroke_handlers)
         .add_startup_system(setup.system())
         .add_startup_system(start_game_system.system())
-        .add_system(keyboard_system.system())
+        // .add_system(keyboard_system.system())
         .add_system(start_pause_game_system.system())
         .add_system(ball_collision_system.system())
         .add_system(change_color_system.system())
         .add_system(ball_movement_system.system())
         .add_system(ball_rotation_system.system())
+        .add_system(ball_trail_system.system())
         .add_system(paddle_movement_system.system())
         .add_system(scoreboard_system.system())
         .add_system(fps_system.system())
-        .add_system(despawn_system.system())
-        // .add_system(check_win_condition_system.system())
+        .add_system(entity_count_system.system())
+        .add_system(color_material_count_system.system())
+        .add_system(color_handle_count_system.system())
+        .add_system(fade_out_system.system())
+        .add_system(check_win_condition_system.system())
         .add_system(render_game_state_text_system.system())
         .add_system(end_game_system.system())
         .run();
@@ -75,23 +48,14 @@ enum Handlers {
     DoubleTapRight,
 }
 
-struct KeyStrokeHandlers(HashMap<Handlers, KeyStrokeHandler>);
-
 /// Determine whether two rectangles overlap during a frame.
 ///
 /// The problem with Bevy's is that during a frame, one rectangle might be *very close*
 /// to another rectangle, then the following frame, it has moved >50% of its "width"
 /// into the rectangle, so this determines that the collision had approached from the
-/// opposite direction. You can also have multiple collisions during a frame, and multiple
-/// frame collisions. Additionally, it is possible to have both vertical and horizontal collisions
-/// i.e. outside corner to outside corner, or outside corner to inside corner.
-///
-/// Instead, you should know its previous position in order to
-/// determine the direction of collision, e.g. during previous frame, A's right edge was
-/// left of B's left edge, therefore collision left. You should also interpolate the
-/// collision location as well. The movement system should then handle this collision,
-/// i.e. move X% towards the collision site, turn around, move (100-X)% away from the collision
-/// site.
+/// opposite direction. You can also have multiple collisions during a frame (not yet implemented), and multiple
+/// frame collisions (not intentional). Additionally, it is possible to have both vertical and horizontal
+/// collisions at the same time i.e. outside corner to outside corner, or outside corner to inside corner.
 fn collide(
     ball_pos: Vec3,
     ball_size: Vec2,
@@ -168,7 +132,8 @@ enum Collider {
     Paddle,
 }
 
-const BACKGROUND_COLOR: Color = Color::rgb(0.7, 0.7, 0.7);
+// const BACKGROUND_COLOR: Color = Color::rgb(0.7, 0.7, 0.7);
+const BACKGROUND_COLOR: [f32; 4] = [0.7, 0.7, 0.7, 0.0];
 const DESPAWN_TIME: f32 = 2.0;
 
 struct Paddle {
@@ -201,7 +166,12 @@ struct Score;
 
 struct Framerate;
 
-struct ToBeDespawned(f32);
+struct EntityCount;
+
+struct FadeOut {
+    fade_out_time: f32,
+    starting_color: Color,
+}
 
 struct Name(String);
 
@@ -234,7 +204,7 @@ fn setup(
             text: Text {
                 //relative to project directory, will panic if not found
                 font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
-                value: "Score:".to_string(),
+                value: "".to_string(),
                 style: TextStyle {
                     color: Color::rgb(0.2, 0.2, 0.8),
                     font_size: 40.0,
@@ -257,7 +227,7 @@ fn setup(
             text: Text {
                 //relative to project directory, will panic if not found
                 font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
-                value: "FPS:".to_string(),
+                value: "".to_string(),
                 style: TextStyle {
                     color: Color::rgb(0.2, 0.2, 0.8),
                     font_size: 40.0,
@@ -275,6 +245,75 @@ fn setup(
             ..Default::default()
         })
         .with(Framerate)
+        // entity count
+        .spawn(TextComponents {
+            text: Text {
+                //relative to project directory, will panic if not found
+                font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
+                value: "".to_string(),
+                style: TextStyle {
+                    color: Color::rgb(0.2, 0.2, 0.8),
+                    font_size: 40.0,
+                },
+            },
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    top: Val::Px(85.0),
+                    left: Val::Px(5.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with(EntityCount)
+        // color material count
+        .spawn(TextComponents {
+            text: Text {
+                //relative to project directory, will panic if not found
+                font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
+                value: "".to_string(),
+                style: TextStyle {
+                    color: Color::rgb(0.2, 0.2, 0.8),
+                    font_size: 40.0,
+                },
+            },
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    top: Val::Px(125.0),
+                    left: Val::Px(5.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with(ColorMaterialCount)
+        // color handle count
+        .spawn(TextComponents {
+            text: Text {
+                //relative to project directory, will panic if not found
+                font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
+                value: "".to_string(),
+                style: TextStyle {
+                    color: Color::rgb(0.2, 0.2, 0.8),
+                    font_size: 40.0,
+                },
+            },
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    top: Val::Px(165.0),
+                    left: Val::Px(5.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with(ColorHandleCount)
         // game state text
         .spawn(TextComponents {
             text: Text {
@@ -307,7 +346,7 @@ fn setup(
         // left
         .spawn(SpriteComponents {
             material: wall_material,
-            translation: Translation(Vec3::new(-bounds.x() / 2.0, 0.0, 0.0)),
+            transform: Transform::from_translation(Vec3::new(-bounds.x() / 2.0, 0.0, 0.0)),
             sprite: Sprite::new(Vec2::new(wall_thickness, bounds.y() + wall_thickness)),
             ..Default::default()
         })
@@ -316,7 +355,7 @@ fn setup(
         // right
         .spawn(SpriteComponents {
             material: wall_material,
-            translation: Translation(Vec3::new(bounds.x() / 2.0, 0.0, 0.0)),
+            transform: Transform::from_translation(Vec3::new(bounds.x() / 2.0, 0.0, 0.0)),
             sprite: Sprite::new(Vec2::new(wall_thickness, bounds.y() + wall_thickness)),
             ..Default::default()
         })
@@ -325,17 +364,17 @@ fn setup(
         // bottom
         .spawn(SpriteComponents {
             material: wall_material,
-            translation: Translation(Vec3::new(0.0, -bounds.y() / 2.0, 0.0)),
+            transform: Transform::from_translation(Vec3::new(0.0, -bounds.y() / 2.0, 0.0)),
             sprite: Sprite::new(Vec2::new(bounds.x() + wall_thickness, wall_thickness)),
             ..Default::default()
         })
-        // .with(Collider::BottomWall)
-        .with(Collider::OtherWall)
+        .with(Collider::BottomWall)
+        // .with(Collider::OtherWall)
         .with(Name("Bottom wall".into()))
         // top
         .spawn(SpriteComponents {
             material: wall_material,
-            translation: Translation(Vec3::new(0.0, bounds.y() / 2.0, 0.0)),
+            transform: Transform::from_translation(Vec3::new(0.0, bounds.y() / 2.0, 0.0)),
             sprite: Sprite::new(Vec2::new(bounds.x() + wall_thickness, wall_thickness)),
             ..Default::default()
         })
@@ -346,12 +385,16 @@ fn setup(
 fn end_game_system(
     mut commands: Commands,
     mut game_state: ResMut<GameState>,
-    materials: ResMut<Assets<ColorMaterial>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut scoreboard: ResMut<Scoreboard>,
     mut despawn_query: Query<(Entity, &DespawnOnEnd)>,
+    color_material_handle_query: Query<&Handle<ColorMaterial>>,
 ) {
     if *game_state == GameState::Restarting {
         for (entity, _) in &mut despawn_query.iter() {
+            if let Ok(handle) = &color_material_handle_query.get::<Handle<ColorMaterial>>(entity) {
+                materials.remove(handle);
+            }
             commands.despawn(entity);
         }
         scoreboard.score = 0;
@@ -365,7 +408,7 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
         // paddle
         .spawn(SpriteComponents {
             material: materials.add(Color::BLACK.into()),
-            translation: Translation(Vec3::new(0.0, -215.0, 0.0)),
+            transform: Transform::from_translation(Vec3::new(0.0, -215.0, 20.0)),
             sprite: Sprite::new(Vec2::new(120.0, 30.0)),
             ..Default::default()
         })
@@ -376,27 +419,13 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
         // ball
         .spawn(SpriteComponents {
             material: materials.add(Color::WHITE.into()),
-            translation: Translation(Vec3::new(0.0, -50.0, 1.0)),
+            transform: Transform::from_translation(Vec3::new(0.0, -30.0, 10.0))
+                .with_rotation(Quat::from_rotation_z(FRAC_PI_4)), // 45 degrees
             sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-            rotation: Rotation::from_rotation_z(FRAC_PI_4), // 45 degrees
-            ..Default::default()
-        })
-        .with(Ball {
-            velocity: 400.0 * Vec3::new(1.0, -1.0, 0.0).normalize(),
-            collided: None,
-            rotation: FRAC_PI_4,
-            rotational_velocity: 2.0 * PI, // radians per second
-            spin: Spin::Clockwise,
-            last_paddle_offset: 0.0,
-        })
-        .with(DespawnOnEnd)
-        .with(Name("Ball".into()))
-        // ball
-        .spawn(SpriteComponents {
-            material: materials.add(Color::WHITE.into()),
-            translation: Translation(Vec3::new(0.0, -30.0, 1.0)),
-            sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-            rotation: Rotation::from_rotation_z(FRAC_PI_4), // 45 degrees
+            draw: Draw {
+                is_transparent: true,
+                ..Default::default()
+            },
             ..Default::default()
         })
         .with(Ball {
@@ -435,7 +464,7 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
                 .spawn(SpriteComponents {
                     material: materials.add(color.into()),
                     sprite: Sprite::new(brick_size),
-                    translation: Translation(brick_position),
+                    transform: Transform::from_translation(brick_position),
                     draw: Draw {
                         is_transparent: true,
                         ..Default::default()
@@ -450,7 +479,7 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
     }
 }
 
-fn keyboard_system(keyboard_input: Res<Input<KeyCode>>, time: Res<Time>) {
+fn _keyboard_system(keyboard_input: Res<Input<KeyCode>>, time: Res<Time>) {
     let t = time.time_since_startup().as_nanos();
     #[derive(Debug)]
     enum Temp {
@@ -520,23 +549,72 @@ fn wrap(num: f32, min: f32, max: f32) -> f32 {
     }
 }
 
+fn ball_trail_system(
+    mut commands: Commands,
+    game_state: Res<GameState>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut query: Query<(&Ball, &Transform, &Handle<ColorMaterial>)>,
+) {
+    if *game_state == GameState::Playing {
+        for (_ball, &transform, material_handle) in &mut query.iter() {
+            let mut translation = transform.translation();
+            translation.set_z(0.0);
+            let transform = transform.with_translation(translation);
+            let color = materials.get(material_handle).unwrap().color;
+            let color = color_to_vec4(color).lerp(color_to_vec4(Color::WHITE), 0.4);
+            let color: Color = color.into();
+            let material = materials.add(color.into());
+            commands
+                .spawn(SpriteComponents {
+                    material,
+                    transform, // 45 degrees
+                    sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+                    draw: Draw {
+                        is_transparent: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .with(DespawnOnEnd)
+                .with(FadeOut {
+                    fade_out_time: 1.0,
+                    starting_color: color,
+                });
+        }
+    }
+}
+
 fn ball_rotation_system(
     time: Res<Time>,
     game_state: Res<GameState>,
-    mut query: Query<(&mut Ball, &mut Rotation)>,
+    mut query: Query<(&Ball, &mut Transform)>,
 ) {
     if *game_state == GameState::Playing {
-        for (mut ball, mut rotation) in &mut query.iter() {
-            match ball.spin {
-                Spin::Clockwise => {
-                    ball.rotation -= ball.rotational_velocity * time.delta_seconds;
-                }
-                Spin::CounterCw => {
-                    ball.rotation += ball.rotational_velocity * time.delta_seconds;
-                }
-            }
-            ball.rotation = wrap(ball.rotation, 0.0, PI);
-            *rotation = Rotation::from_rotation_z(ball.rotation);
+        for (ball, mut transform) in &mut query.iter() {
+            // match ball.spin {
+            //     Spin::Clockwise => {
+            //         ball.rotation -= ball.rotational_velocity * time.delta_seconds;
+            //     }
+            //     Spin::CounterCw => {
+            //         ball.rotation += ball.rotational_velocity * time.delta_seconds;
+            //     }
+            // }
+            // ball.rotation = wrap(ball.rotation, 0.0, PI);
+            // *rotation = Rotation::from_rotation_z(ball.rotation);
+            // dbg!(&transform);
+            let current_angle = transform.rotation().to_axis_angle().1;
+            let new_angle = wrap(
+                current_angle
+                    + ball.rotational_velocity
+                        * time.delta_seconds
+                        * match ball.spin {
+                            Spin::Clockwise => -1.0,
+                            Spin::CounterCw => 1.0,
+                        },
+                0.0,
+                PI,
+            );
+            transform.set_rotation(Quat::from_rotation_z(new_angle));
         }
     }
 }
@@ -545,49 +623,67 @@ fn paddle_movement_system(
     time: Res<Time>,
     game_state: Res<GameState>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut handlers: ResMut<KeyStrokeHandlers>,
-    mut query: Query<(&Paddle, &mut Translation)>,
+    mut key_combos_resource: Local<Option<HashMap<Handlers, KeyCombo>>>,
+    mut query: Query<(&Paddle, &mut Transform)>,
 ) {
+    // initialise local
+    if let None = *key_combos_resource {
+        let mut h: HashMap<Handlers, KeyCombo> = HashMap::new();
+        h.insert(
+            Handlers::DoubleTapLeft,
+            KeyCombo::new(
+                vec![Keypress::new(KeyCode::Left), Keypress::new(KeyCode::Left)],
+                0.5,
+                0.25,
+                false,
+            ),
+        );
+        h.insert(
+            Handlers::DoubleTapRight,
+            KeyCombo::new(
+                vec![Keypress::new(KeyCode::Right), Keypress::new(KeyCode::Right)],
+                0.5,
+                0.25,
+                false,
+            ),
+        );
+        *key_combos_resource = Some(h);
+    }
     if *game_state == GameState::Playing {
-        for (paddle, mut translation) in &mut query.iter() {
+        for (paddle, mut transform) in &mut query.iter() {
             let mut direction = 0.0;
-            // if keyboard_input.pressed(KeyCode::Left) {
-            //     direction -= 1.0;
-            // }
-
-            // if keyboard_input.pressed(KeyCode::Right) {
-            //     direction += 1.0;
-            // }
-            if KeyStrokeHandler::test_input(
-                &keyboard_input,
-                &vec![KeyStroke::Pressed(KeyCode::Left)],
-            ) {
+            if keyboard_input.pressed(KeyCode::Left) {
                 direction -= 1.0;
             }
-
-            if KeyStrokeHandler::test_input(
-                &keyboard_input,
-                &vec![KeyStroke::Pressed(KeyCode::Right)],
-            ) {
+            if keyboard_input.pressed(KeyCode::Right) {
                 direction += 1.0;
             }
-
-            if let Some(handler) = handlers.0.get_mut(&Handlers::DoubleTapLeft) {
-                if handler.done(&keyboard_input, time.delta_seconds) {
-                    *translation.0.x_mut() -= 180.0;
+            // if both are pressed at the same time, we don't move, i.e. direction = 0.0
+            if let Some(key_combos) = &mut *key_combos_resource {
+                if let Some(handler) = key_combos.get_mut(&Handlers::DoubleTapLeft) {
+                    if keyboard_input.pressed(KeyCode::Right) {
+                        handler.reset();
+                    } else if handler.done(&keyboard_input, time.delta_seconds) {
+                        // temporary, instead increase the paddle speed temporarily
+                        *transform.translation_mut().x_mut() -= 180.0;
+                    }
+                }
+                if let Some(handler) = key_combos.get_mut(&Handlers::DoubleTapRight) {
+                    if keyboard_input.pressed(KeyCode::Left) {
+                        handler.reset();
+                    } else if handler.done(&keyboard_input, time.delta_seconds) {
+                        // temporary, instead increase the paddle speed temporarily
+                        *transform.translation_mut().x_mut() += 180.0;
+                    }
                 }
             }
-            if let Some(handler) = handlers.0.get_mut(&Handlers::DoubleTapRight) {
-                if handler.done(&keyboard_input, time.delta_seconds) {
-                    *translation.0.x_mut() += 180.0;
-                }
-            }
 
-            *translation.0.x_mut() += time.delta_seconds * direction * paddle.speed;
+            *transform.translation_mut().x_mut() += time.delta_seconds * direction * paddle.speed;
 
             // bound the paddle partially within the walls
             // paddle width is 120, arena bounds are -380 to 380
-            *translation.0.x_mut() = translation.0.x().max(-500.0).min(500.0);
+            *transform.translation_mut().x_mut() =
+                transform.translation_mut().x().max(-500.0).min(500.0);
         }
     }
 }
@@ -595,36 +691,41 @@ fn paddle_movement_system(
 fn ball_movement_system(
     time: Res<Time>,
     game_state: Res<GameState>,
-    mut ball_query: Query<(&mut Ball, &mut Translation)>,
+    mut ball_query: Query<(&mut Ball, &mut Transform)>,
 ) {
     if *game_state == GameState::Playing {
         // clamp the timestep to stop the ball from escaping when the game starts
         let delta_seconds = f32::min(0.2, time.delta_seconds);
 
-        for (mut ball, mut translation) in &mut ball_query.iter() {
+        for (mut ball, mut transform) in &mut ball_query.iter() {
             // either we continue in the current direction with current velocity
             // or we take two moves with flips, so we need a midpoint, and a new direction
             let handle_collision = match &ball.collided {
                 None => None,
                 Some((collision, collider, _color)) => {
-                    let start = translation.0;
+                    let start = transform.translation();
                     let extrapolated = start + ball.velocity * delta_seconds;
                     // check if x is a collision first
                     let x_collided = collision.x.0 != CollisionX::None;
                     let y_collided = collision.y.0 != CollisionY::None;
-                    let midpoint = if x_collided {
-                        let x_collision_site = &collision.x.1;
-                        let x_start = start.x();
-                        let x_extrapolated = extrapolated.x();
-                        (x_collision_site - x_start) / (x_extrapolated - x_start)
-                    } else if y_collided {
-                        let y_collision_site = &collision.y.1;
-                        let y_start = start.y();
-                        let y_extrapolated = extrapolated.y();
-                        (y_collision_site - y_start) / (y_extrapolated - y_start)
-                    } else {
-                        0.0
-                    };
+                    let midpoint = f32::min(
+                        if x_collided {
+                            let x_collision_site = &collision.x.1;
+                            let x_start = start.x();
+                            let x_extrapolated = extrapolated.x();
+                            (x_collision_site - x_start) / (x_extrapolated - x_start)
+                        } else {
+                            0.0
+                        },
+                        if y_collided {
+                            let y_collision_site = &collision.y.1;
+                            let y_start = start.y();
+                            let y_extrapolated = extrapolated.y();
+                            (y_collision_site - y_start) / (y_extrapolated - y_start)
+                        } else {
+                            0.0
+                        },
+                    );
                     let new_velocity = if let Collider::Paddle = collider {
                         if collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0 {
                             let magnitude = ball.velocity.length();
@@ -669,14 +770,14 @@ fn ball_movement_system(
             };
             if let Some((midpoint, new_velocity)) = handle_collision {
                 // half move
-                translation.0 += ball.velocity * delta_seconds * midpoint;
+                transform.translate(ball.velocity * delta_seconds * midpoint);
                 // update velocity
                 ball.velocity = new_velocity;
                 ball.rotational_velocity = new_velocity.length() / 400.0 * 2.0 * PI;
                 // finish the move
-                translation.0 += ball.velocity * delta_seconds * (1.0 - midpoint);
+                transform.translate(ball.velocity * delta_seconds * (1.0 - midpoint));
             } else {
-                translation.0 += ball.velocity * delta_seconds;
+                transform.translate(ball.velocity * delta_seconds);
             }
             ball.collided = None;
         }
@@ -684,14 +785,58 @@ fn ball_movement_system(
 }
 
 fn scoreboard_system(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &Score)>) {
-    for (mut text, _score) in &mut query.iter() {
+    for (mut text, _score_marker) in &mut query.iter() {
         text.value = format!("Score: {}", scoreboard.score);
     }
 }
 
 fn fps_system(time: Res<Time>, mut query: Query<(&mut Text, &Framerate)>) {
-    for (mut text, _framerate) in &mut query.iter() {
+    for (mut text, _framerate_marker) in &mut query.iter() {
         text.value = format!("FPS: {:.0}", 1.0 / time.delta_seconds);
+    }
+}
+
+fn entity_count_system(
+    mut query: Query<(&mut Text, &EntityCount)>, 
+    mut entity_query: Query<Entity>,
+) {
+    for (mut text, _entity_count_marker) in &mut query.iter() {
+        let mut entity_count = 0;
+        for _ in &mut entity_query.iter() {
+            entity_count += 1;
+        }
+        text.value = format!("Entities: {}", entity_count);
+    }
+}
+
+struct ColorMaterialCount;
+
+fn color_material_count_system(
+    color_query: Res<Assets<ColorMaterial>>,
+    mut query: Query<(&mut Text, &ColorMaterialCount)>, 
+    // mut color_query: Query<color>,
+) {
+    for (mut text, _color_count_marker) in &mut query.iter() {
+        let mut color_count = 0;
+        for _ in &mut color_query.iter() {
+            color_count += 1;
+        }
+        text.value = format!("Color Materials: {}", color_count);
+    }
+}
+struct ColorHandleCount;
+
+fn color_handle_count_system(
+    // color_handle_query: Res<Assets<ColorMaterial>>,
+    mut query: Query<(&mut Text, &ColorHandleCount)>, 
+    mut color_handle_query: Query<&Handle<ColorMaterial>>,
+) {
+    for (mut text, _color_handle_count_marker) in &mut query.iter() {
+        let mut color_handle_count = 0;
+        for _ in &mut color_handle_query.iter() {
+            color_handle_count += 1;
+        }
+        text.value = format!("Color Handles: {}", color_handle_count);
     }
 }
 
@@ -706,12 +851,18 @@ fn ball_collision_system(
     mut game_state: ResMut<GameState>,
     mut scoreboard: ResMut<Scoreboard>,
     materials: Res<Assets<ColorMaterial>>,
-    mut ball_query: Query<(Entity, &mut Ball, &Translation, &Sprite)>,
+    mut ball_query: Query<(
+        Entity, 
+        &mut Ball, 
+        &Transform, 
+        &Sprite,
+        &Handle<ColorMaterial>,
+    )>,
     brick_query: Query<&mut Brick>,
     mut collider_query: Query<(
         Entity,
         &Collider,
-        &Translation,
+        &Transform,
         &Sprite,
         &Name,
         &Handle<ColorMaterial>,
@@ -722,56 +873,68 @@ fn ball_collision_system(
         for (..) in &mut ball_query.iter() {
             ball_count += 1;
         }
-        for (ball_entity, mut ball, ball_translation, sprite) in &mut ball_query.iter() {
+        for (ball_entity, mut ball, ball_transform, sprite, ball_color_material_handle) in &mut ball_query.iter() {
             let ball_size = sprite.size;
 
             // check collision with walls, bricks and paddles
-            for (collider_entity, collider, translation, sprite, _name, material_handle) in
+            for (collider_entity, collider, collider_transform, sprite, _name, collider_color_material_handle) in
                 &mut collider_query.iter()
             {
                 if let Some(collision) = collide(
-                    ball_translation.0,
+                    ball_transform.translation(),
                     ball_size,
-                    translation.0,
+                    collider_transform.translation(),
                     sprite.size,
                     &ball.velocity,
                     time.delta_seconds,
                 ) {
                     if let Collider::Paddle = *collider {
                         if collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0 {
-                            ball.spin = if ball_translation.0.x() < translation.0.x() {
+                            ball.spin = if ball_transform.translation().x()
+                                < collider_transform.translation().x()
+                            {
                                 Spin::CounterCw
                             } else {
                                 Spin::Clockwise
                             };
                             // TODO: defer this to the movementsystem
-                            ball.last_paddle_offset = ball_translation.0.x() - translation.0.x();
+                            ball.last_paddle_offset = ball_transform.translation().x()
+                                - collider_transform.translation().x();
                         }
                     } else if let Collider::BottomWall = *collider {
-                        commands.insert_one(ball_entity, ToBeDespawned(DESPAWN_TIME));
+                        let color = materials.get(&ball_color_material_handle).unwrap().color;
+                        commands.insert_one(ball_entity, FadeOut {
+                            fade_out_time: DESPAWN_TIME,
+                            starting_color: color,
+                        });
                         commands.remove_one::<Ball>(ball_entity);
                         ball_count -= 1;
                         if ball_count <= 0 {
                             *game_state = GameState::Lose;
                             return;
                         }
-                    } else {
+                    } else if let Collider::Brick = *collider {
                         // scorable colliders should be despawned and increment the scoreboard on collision
-                        if let Collider::Brick = *collider {
-                            commands.insert_one(collider_entity, ToBeDespawned(DESPAWN_TIME));
-                            commands.remove_one::<Collider>(collider_entity);
-                            if let Some(mut brick) =
-                                brick_query.get_mut::<Brick>(collider_entity).ok()
-                            {
-                                brick.0 = false;
-                            }
-                            scoreboard.score += 1;
+                        commands.insert_one(collider_entity, FadeOut {
+                            fade_out_time: DESPAWN_TIME,
+                            starting_color: Color::WHITE,
+                        });
+                        commands.remove_one::<Collider>(collider_entity);
+                        if let Some(mut brick) =
+                            brick_query.get_mut::<Brick>(collider_entity).ok()
+                        {
+                            brick.0 = false;
                         }
+                        scoreboard.score += 1;
                     }
 
-                    let color = materials.get(&material_handle).unwrap().color;
+                    let color = materials.get(&collider_color_material_handle).unwrap().color;
                     // TODO: store the entity instead of copying the collider and color
                     ball.collided = Some((collision, *collider, color));
+                    // TODO: I think this is a tempfix for the ball escaping the arena, i.e. it can only hit collide with one entity only
+                    // nope, ball still escapes - the correct fix is to allow for multiple collisions in one frame
+                    // (e.g. the paddle AND the side wall, a brick AND a wall, top AND side walls)
+                    break;
                 }
             }
         }
@@ -820,30 +983,32 @@ fn change_color_system(
     }
 }
 
-fn despawn_system(
+fn fade_out_system(
     mut commands: Commands,
     time: Res<Time>,
     game_state: Res<GameState>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut despawn_query: Query<(Entity, &mut ToBeDespawned, &Handle<ColorMaterial>)>,
+    mut despawn_query: Query<(Entity, &mut FadeOut, &Handle<ColorMaterial>)>,
 ) {
     let rgb = Vec4::new(1.0, 1.0, 1.0, 0.0);
     if *game_state != GameState::Paused && *game_state != GameState::Restarting {
-        for (entity, mut despawn_time, material_handle) in &mut despawn_query.iter() {
-            if despawn_time.0 == DESPAWN_TIME {
+        for (entity, mut fade_out, material_handle) in &mut despawn_query.iter() {
+            if fade_out.fade_out_time == DESPAWN_TIME {
                 let material = materials.get_mut(&material_handle).unwrap();
-                material.color = Color::WHITE;
+                material.color = fade_out.starting_color;
             }
-            despawn_time.0 -= time.delta_seconds;
-            if despawn_time.0 > 0.0 {
+            fade_out.fade_out_time -= time.delta_seconds;
+            if fade_out.fade_out_time > 0.0 {
                 let material = materials.get_mut(&material_handle).unwrap();
-                let color = color_to_vec4(material.color);
+                // let color = color_to_vec4(material.color);
+                let color = color_to_vec4(fade_out.starting_color);
                 material.color =
-                    (color * rgb + Vec4::new(0.0, 0.0, 0.0, despawn_time.0 / DESPAWN_TIME)).into();
+                    (color * rgb + Vec4::new(0.0, 0.0, 0.0, fade_out.fade_out_time / DESPAWN_TIME)).into();
             } else {
                 // end_game_system (GameState::Restarting) takes precedence on despawning, so that we don't
                 // attempt to despawn the same entity in the same frame (crashes)
                 commands.despawn(entity);
+                materials.remove(&material_handle);
             }
         }
     }
@@ -878,76 +1043,150 @@ fn check_win_condition_system(mut game_state: ResMut<GameState>, mut brick_query
     }
 }
 
-#[derive(Debug)]
-enum KeyStroke {
-    JustReleased(KeyCode),
-    JustPressed(KeyCode),
-    Pressed(KeyCode),
-    NotJustReleased(KeyCode),
-    NotJustPressed(KeyCode),
-    NotPressed(KeyCode),
+/// A key press (with or without modifiers)
+#[derive(Clone)]
+struct Keypress {
+    key: KeyCode,
+    modifiers: HashSet<KeyCode>,
 }
 
-struct KeyStrokeHandler {
-    key_stroke_sequence: Vec<Vec<KeyStroke>>,
-    max_hold: f32,
-    hold_timer: f32,
-    max_pause: f32,
-    pause_timer: f32,
-    index: usize,
-}
-
-impl KeyStrokeHandler {
-    fn new(key_stroke_sequence: Vec<Vec<KeyStroke>>, max_pause: f32, max_hold: f32) -> Self {
+impl Keypress {
+    /// Register a key press (any key) - takes one argument, a [`KeyCode`]
+    fn new(key: KeyCode) -> Self {
         Self {
-            key_stroke_sequence,
-            max_hold,
-            hold_timer: 0.0,
-            max_pause,
-            pause_timer: 0.0,
+            key,
+            modifiers: HashSet::new(),
+        }
+    }
+    /// Add a modifier (any key) - takes one argument, a [`KeyCode`]
+    #[allow(dead_code)]
+    fn with_modifier(&mut self, modifier: KeyCode) -> &mut Self {
+        self.modifiers.insert(modifier);
+        self
+    }
+    /// Returns true if this key was just pressed, and all registered modifiers are currently pressed.
+    /// Takes one argument - pass it a reference to the keyboard input resource (`&Res<Input<KeyCode>>`)
+    fn just_pressed(&self, input: &Res<Input<KeyCode>>) -> bool {
+        if input.just_pressed(self.key) {
+            for &modifier in &self.modifiers {
+                if !input.pressed(modifier) {
+                    return false;
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+    /// Returns true if this key was just released, and all registered modifiers are currently pressed.
+    /// Takes one argument - pass it a reference to the keyboard input resource (`&Res<Input<KeyCode>>`)
+    fn just_released(&self, input: &Res<Input<KeyCode>>) -> bool {
+        if input.just_released(self.key) {
+            for &modifier in &self.modifiers {
+                if !input.pressed(modifier) {
+                    return false;
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+}
+
+enum WaitForKey {
+    Press,
+    Release,
+}
+
+struct KeyCombo {
+    keypress_sequence: Vec<Keypress>,
+    max_wait_for_release: f32,
+    wait_for_release_timer: f32,
+    max_wait_for_press: f32,
+    wait_for_press_timer: f32,
+    waiting_for: WaitForKey,
+    index: usize,
+    done_on_press: bool,
+}
+
+// if index is at 0, this thing waits for the first key in the sequence
+// when this key is just pressed, it starts the
+impl KeyCombo {
+    /// Register a key combo
+    ///
+    /// # Arguments
+    ///
+    /// * `keypress_sequence`: what sequence of [key presses](Keypress) triggers a "done"
+    /// * `max_wait_for_press`: how long to allow between key presses
+    /// * `max_wait_for_release`: how long to allow a key to be held down to be treated as a key press
+    /// * `done_on_press`: if true, this ends the key combo when the last key is pressed, not released
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let key_combo = KeyCombo::new(
+    ///     vec![Keypress::new(KeyCode::Left), Keypress::new(KeyCode::Left)],
+    ///     0.5,
+    ///     0.25,
+    /// );
+    /// ```
+    fn new(
+        keypress_sequence: Vec<Keypress>,
+        max_wait_for_press: f32,
+        max_wait_for_release: f32,
+        done_on_press: bool,
+    ) -> Self {
+        Self {
+            keypress_sequence,
+            max_wait_for_release,
+            wait_for_release_timer: 0.0,
+            max_wait_for_press,
+            wait_for_press_timer: 0.0,
+            waiting_for: WaitForKey::Press,
             index: 0,
+            done_on_press,
         }
     }
     fn reset(&mut self) {
-        self.pause_timer = 0.0;
+        self.wait_for_release_timer = 0.0;
+        self.wait_for_press_timer = 0.0;
+        self.waiting_for = WaitForKey::Press;
         self.index = 0;
     }
+    /// Check if a key combo has been fully entered
     fn done(&mut self, input: &Res<Input<KeyCode>>, delta_time: f32) -> bool {
-        // after something is just pressed, start the hold timer
-        // after something is just released, start the pause timer
-        // if either timer exceeds their max, reset the sequence
-        // if we match the current expected input
-        if Self::test_input(input, &self.key_stroke_sequence[self.index]) {
-            // start the timer and wait for the next input
-            self.pause_timer = 0.0;
-            self.index += 1;
-            // if there is no next input, make this "done" and reset
-            if self.index >= self.key_stroke_sequence.len() {
-                self.reset();
-                return true;
+        let current_key = &self.keypress_sequence[self.index];
+        let mut reset = false;
+        match self.waiting_for {
+            WaitForKey::Press => {
+                self.wait_for_press_timer += delta_time;
+                if current_key.just_pressed(input) {
+                    self.waiting_for = WaitForKey::Release;
+                } else if self.wait_for_press_timer >= self.max_wait_for_press {
+                    reset = true;
+                }
+            }
+            WaitForKey::Release => {
+                self.wait_for_release_timer += delta_time;
+                if current_key.just_released(input) {
+                    self.index += 1;
+                    self.waiting_for = WaitForKey::Press;
+                } else if self.wait_for_release_timer >= self.max_wait_for_release {
+                    reset = true;
+                }
             }
         }
-        // advance the timer
-        self.pause_timer += delta_time;
-        // if the timer reaches max_pause, reset
-        if self.pause_timer > self.max_pause {
+        if reset {
             self.reset();
         }
-        false
-    }
-    fn test_input(input: &Res<Input<KeyCode>>, key_strokes: &Vec<KeyStroke>) -> bool {
-        for key_stroke in key_strokes {
-            if !(match key_stroke {
-                KeyStroke::JustReleased(key_code) => input.just_released(*key_code),
-                KeyStroke::JustPressed(key_code) => input.just_pressed(*key_code),
-                KeyStroke::Pressed(key_code) => input.pressed(*key_code),
-                KeyStroke::NotJustReleased(key_code) => !input.just_released(*key_code),
-                KeyStroke::NotJustPressed(key_code) => !input.just_pressed(*key_code),
-                KeyStroke::NotPressed(key_code) => !input.pressed(*key_code),
-            }) {
-                return false;
-            };
+        if (!self.done_on_press && self.index >= self.keypress_sequence.len())
+            || (self.done_on_press && self.index >= self.keypress_sequence.len() - 1)
+        {
+            self.reset();
+            true
+        } else {
+            false
         }
-        true
     }
 }

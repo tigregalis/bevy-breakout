@@ -24,13 +24,17 @@
   - [ ] multiple paddles
   - [ ] shadow paddle
 - [ ] lives
-- [ ] blink/teleport using double-tap
-  - still needs work
+- [x] blink/teleport using double-tap
+  - on review, this doesn't feel good
+- [ ] remove blink/teleport using double-tap (use as a skill)
 - [ ] add more brick types
   - [ ] some bricks take multiple hits
   - [ ] some bricks release power ups
-  - [ ] some bricks release 
-- [ ] add power-ups that affect the ball and paddle
+  - [ ] some bricks release balls
+  - [ ] some bricks don't break
+  - [ ] some bricks randomise
+- [ ] add skills/power-ups that affect the ball and paddle
+  - [ ] skills/power-ups have: uses (or unlimited), cooldown (or no cooldown)
 - [x] balls speed up as they hit bricks
 - [ ] when the ball speeds up, the paddle speeds up as well
 - [x] balls slow down as they hit walls
@@ -63,6 +67,9 @@
     error: process didn't exit successfully: `target\debug\my_bevy_game.exe` (exit code: 101)
   - something is wrong with the despawn system I'm guessing
   - believe that `despawn_system` was attempting to despawn the same entities as `end_game_system`, need to test
+- [x] update to bevy 0.2.0
+  - [x] rewrite to use `Transform` instead of `Translation`, `Rotation` directly, and use `Transform.rotate()` for the ball rotation.
+- [x] figure out why the z portion of the translation changes (it probably shouldn't)
 
 # aesthetics
 
@@ -77,11 +84,19 @@
   - need to set up UI components properly
 - [ ] instructional text "press R"
 - [x] speed of spin depending on speed of ball
+- [ ] change ball trail Z index so that it always appears below the ball
+- [x] change `ToBeDespawned` (now `FadeOut`) colours
 
 # code
 
 - [ ] reorganise logic into systems
 - [ ] reorganise code into modules and maybe plugins
-- [ ] rewrite to use entities instead of copying components
+- [ ] rewrite to use references to entities instead of copying data around components
   - If `system_2` has a query like `transform_query: Query<&Transform>` then you can go
     `transform_query.get::<Transform>(entity)` to pull the Transform for that particular `Entity`."
+
+# performance
+
+- [x] fix/optimise the issue where handles to colormaterial aren't being removed from the materials assets
+- [ ] currently removing handles manually from despawn, change to a system that despawns everything that doesn't have a handle
+- [ ] pre-allocate handles at startup (or when required) and change to a buffer of handles that recycles them `Vec<Handle<ColorMaterial>>>`
