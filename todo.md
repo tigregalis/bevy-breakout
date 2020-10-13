@@ -59,9 +59,9 @@
   - possibly fixed by setting up multiple collisions in one frame, or setting a precedence
   - our new collision detection is too finicky - if something has already started passing through, it doesn't work
 - [x] when the ball touches the side of the paddle, it changes colour when it shouldn't
-- [ ] if two balls hit the same brick in the same frame, it grants two score
+- [x] if two balls hit the same brick in the same frame, it grants two score
 - [x] despawning balls grant score
-- [ ] occasionally when you lose, and try to restart, it panics
+- [x] occasionally when you lose, and try to restart, it panics
   - thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: NoSuchEntity', C:\Users\Harimau\.cargo\git\checkouts\bevy-f7ffde730c324c74\3bc5e4c\crates\bevy_ecs\src\system\commands.rs:75:36
     note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace       
     error: process didn't exit successfully: `target\debug\my_bevy_game.exe` (exit code: 101)
