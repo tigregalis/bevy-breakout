@@ -1,4 +1,5 @@
-//! An implementation of the classic game "Breakout"
+#![feature(external_doc)]
+#![doc(include = "../README.md")]
 
 use std::{
     collections::{HashMap, HashSet},
@@ -8,10 +9,6 @@ use std::{
 use bevy::prelude::*;
 
 use rand::random;
-
-// use std::collections::HashMap;
-
-// use serde::{Serialize, Deserialize};
 
 /// An implementation of the classic game "Breakout"
 fn main() {
@@ -194,6 +191,8 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
+    // this is now relative to the PROJECT_ROOT/assets directory, will panic if not found
+    let font = asset_server.load("FiraSans-Bold.ttf");
     // Add the game's entities to our world
     commands
         // cameras
@@ -202,8 +201,7 @@ fn setup(
         // scoreboard
         .spawn(TextComponents {
             text: Text {
-                //relative to project directory, will panic if not found
-                font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
+                font: font.clone(),
                 value: "".to_string(),
                 style: TextStyle {
                     color: Color::rgb(0.2, 0.2, 0.8),
@@ -225,8 +223,7 @@ fn setup(
         // framerate
         .spawn(TextComponents {
             text: Text {
-                //relative to project directory, will panic if not found
-                font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
+                font: font.clone(),
                 value: "".to_string(),
                 style: TextStyle {
                     color: Color::rgb(0.2, 0.2, 0.8),
@@ -248,8 +245,7 @@ fn setup(
         // entity count
         .spawn(TextComponents {
             text: Text {
-                //relative to project directory, will panic if not found
-                font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
+                font: font.clone(),
                 value: "".to_string(),
                 style: TextStyle {
                     color: Color::rgb(0.2, 0.2, 0.8),
@@ -271,8 +267,7 @@ fn setup(
         // color material count
         .spawn(TextComponents {
             text: Text {
-                //relative to project directory, will panic if not found
-                font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
+                font: font.clone(),
                 value: "".to_string(),
                 style: TextStyle {
                     color: Color::rgb(0.2, 0.2, 0.8),
@@ -294,8 +289,7 @@ fn setup(
         // color handle count
         .spawn(TextComponents {
             text: Text {
-                //relative to project directory, will panic if not found
-                font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
+                font: font.clone(),
                 value: "".to_string(),
                 style: TextStyle {
                     color: Color::rgb(0.2, 0.2, 0.8),
@@ -317,7 +311,7 @@ fn setup(
         // game state text
         .spawn(TextComponents {
             text: Text {
-                font: asset_server.load("assets/FiraSans-Bold.ttf").unwrap(),
+                font: font.clone(),
                 value: "".to_string(),
                 style: TextStyle {
                     color: Color::rgb(1.0, 1.0, 1.0),
@@ -345,7 +339,7 @@ fn setup(
     commands
         // left
         .spawn(SpriteComponents {
-            material: wall_material,
+            material: wall_material.clone(),
             transform: Transform::from_translation(Vec3::new(-bounds.x() / 2.0, 0.0, 0.0)),
             sprite: Sprite::new(Vec2::new(wall_thickness, bounds.y() + wall_thickness)),
             ..Default::default()
@@ -354,7 +348,7 @@ fn setup(
         .with(Name("Left wall".into()))
         // right
         .spawn(SpriteComponents {
-            material: wall_material,
+            material: wall_material.clone(),
             transform: Transform::from_translation(Vec3::new(bounds.x() / 2.0, 0.0, 0.0)),
             sprite: Sprite::new(Vec2::new(wall_thickness, bounds.y() + wall_thickness)),
             ..Default::default()
@@ -363,7 +357,7 @@ fn setup(
         .with(Name("Right wall".into()))
         // bottom
         .spawn(SpriteComponents {
-            material: wall_material,
+            material: wall_material.clone(),
             transform: Transform::from_translation(Vec3::new(0.0, -bounds.y() / 2.0, 0.0)),
             sprite: Sprite::new(Vec2::new(bounds.x() + wall_thickness, wall_thickness)),
             ..Default::default()
@@ -373,7 +367,7 @@ fn setup(
         .with(Name("Bottom wall".into()))
         // top
         .spawn(SpriteComponents {
-            material: wall_material,
+            material: wall_material.clone(),
             transform: Transform::from_translation(Vec3::new(0.0, bounds.y() / 2.0, 0.0)),
             sprite: Sprite::new(Vec2::new(bounds.x() + wall_thickness, wall_thickness)),
             ..Default::default()
@@ -385,16 +379,17 @@ fn setup(
 fn end_game_system(
     mut commands: Commands,
     mut game_state: ResMut<GameState>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    materials: ResMut<Assets<ColorMaterial>>,
     mut scoreboard: ResMut<Scoreboard>,
     mut despawn_query: Query<(Entity, &DespawnOnEnd)>,
-    color_material_handle_query: Query<&Handle<ColorMaterial>>,
+    // color_material_handle_query: Query<&Handle<ColorMaterial>>,
 ) {
     if *game_state == GameState::Restarting {
         for (entity, _) in &mut despawn_query.iter() {
-            if let Ok(handle) = &color_material_handle_query.get::<Handle<ColorMaterial>>(entity) {
-                materials.remove(handle);
-            }
+            // below no longer required - Bevy now handles this for us
+            // if let Ok(handle) = &color_material_handle_query.get::<Handle<ColorMaterial>>(entity) {
+            //     materials.remove(handle);
+            // }
             commands.despawn(entity);
         }
         scoreboard.score = 0;
@@ -419,8 +414,11 @@ fn start_game_system(mut commands: Commands, mut materials: ResMut<Assets<ColorM
         // ball
         .spawn(SpriteComponents {
             material: materials.add(Color::WHITE.into()),
-            transform: Transform::from_translation(Vec3::new(0.0, -30.0, 10.0))
-                .with_rotation(Quat::from_rotation_z(FRAC_PI_4)), // 45 degrees
+            transform: Transform {
+                translation: Vec3::new(0.0, -30.0, 10.0),
+                rotation: Quat::from_rotation_z(FRAC_PI_4),
+                ..Default::default()
+            },
             sprite: Sprite::new(Vec2::new(30.0, 30.0)),
             draw: Draw {
                 is_transparent: true,
@@ -557,9 +555,8 @@ fn ball_trail_system(
 ) {
     if *game_state == GameState::Playing {
         for (_ball, &transform, material_handle) in &mut query.iter() {
-            let mut translation = transform.translation();
-            translation.set_z(0.0);
-            let transform = transform.with_translation(translation);
+            let mut transform = transform;
+            transform.translation.set_z(0.0);
             let color = materials.get(material_handle).unwrap().color;
             let color = color_to_vec4(color).lerp(color_to_vec4(Color::WHITE), 0.4);
             let color: Color = color.into();
@@ -567,7 +564,7 @@ fn ball_trail_system(
             commands
                 .spawn(SpriteComponents {
                     material,
-                    transform, // 45 degrees
+                    transform,
                     sprite: Sprite::new(Vec2::new(30.0, 30.0)),
                     draw: Draw {
                         is_transparent: true,
@@ -602,7 +599,7 @@ fn ball_rotation_system(
             // ball.rotation = wrap(ball.rotation, 0.0, PI);
             // *rotation = Rotation::from_rotation_z(ball.rotation);
             // dbg!(&transform);
-            let current_angle = transform.rotation().to_axis_angle().1;
+            let current_angle = transform.rotation.to_axis_angle().1;
             let new_angle = wrap(
                 current_angle
                     + ball.rotational_velocity
@@ -614,7 +611,7 @@ fn ball_rotation_system(
                 0.0,
                 PI,
             );
-            transform.set_rotation(Quat::from_rotation_z(new_angle));
+            transform.rotation = Quat::from_rotation_z(new_angle);
         }
     }
 }
@@ -665,7 +662,7 @@ fn paddle_movement_system(
                         handler.reset();
                     } else if handler.done(&keyboard_input, time.delta_seconds) {
                         // temporary, instead increase the paddle speed temporarily
-                        *transform.translation_mut().x_mut() -= 180.0;
+                        *transform.translation.x_mut() -= 180.0;
                     }
                 }
                 if let Some(handler) = key_combos.get_mut(&Handlers::DoubleTapRight) {
@@ -673,17 +670,17 @@ fn paddle_movement_system(
                         handler.reset();
                     } else if handler.done(&keyboard_input, time.delta_seconds) {
                         // temporary, instead increase the paddle speed temporarily
-                        *transform.translation_mut().x_mut() += 180.0;
+                        *transform.translation.x_mut() += 180.0;
                     }
                 }
             }
 
-            *transform.translation_mut().x_mut() += time.delta_seconds * direction * paddle.speed;
+            *transform.translation.x_mut() += time.delta_seconds * direction * paddle.speed;
 
             // bound the paddle partially within the walls
             // paddle width is 120, arena bounds are -380 to 380
-            *transform.translation_mut().x_mut() =
-                transform.translation_mut().x().max(-500.0).min(500.0);
+            *transform.translation.x_mut() =
+                transform.translation.x().max(-500.0).min(500.0);
         }
     }
 }
@@ -703,7 +700,7 @@ fn ball_movement_system(
             let handle_collision = match &ball.collided {
                 None => None,
                 Some((collision, collider, _color)) => {
-                    let start = transform.translation();
+                    let start = transform.translation;
                     let extrapolated = start + ball.velocity * delta_seconds;
                     // check if x is a collision first
                     let x_collided = collision.x.0 != CollisionX::None;
@@ -770,14 +767,14 @@ fn ball_movement_system(
             };
             if let Some((midpoint, new_velocity)) = handle_collision {
                 // half move
-                transform.translate(ball.velocity * delta_seconds * midpoint);
+                transform.translation += ball.velocity * delta_seconds * midpoint;
                 // update velocity
                 ball.velocity = new_velocity;
                 ball.rotational_velocity = new_velocity.length() / 400.0 * 2.0 * PI;
                 // finish the move
-                transform.translate(ball.velocity * delta_seconds * (1.0 - midpoint));
+                transform.translation += ball.velocity * delta_seconds * (1.0 - midpoint);
             } else {
-                transform.translate(ball.velocity * delta_seconds);
+                transform.translation += ball.velocity * delta_seconds;
             }
             ball.collided = None;
         }
@@ -786,18 +783,24 @@ fn ball_movement_system(
 
 fn scoreboard_system(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &Score)>) {
     for (mut text, _score_marker) in &mut query.iter() {
-        text.value = format!("Score: {}", scoreboard.score);
+        let text_value = format!("Score: {}", scoreboard.score);
+        if text.value != text_value {
+            text.value = text_value;
+        }
     }
 }
 
 fn fps_system(time: Res<Time>, mut query: Query<(&mut Text, &Framerate)>) {
     for (mut text, _framerate_marker) in &mut query.iter() {
-        text.value = format!("FPS: {:.0}", 1.0 / time.delta_seconds);
+        let text_value = format!("FPS: {:.0}", 1.0 / time.delta_seconds);
+        if text.value != text_value {
+            text.value = text_value;
+        }
     }
 }
 
 fn entity_count_system(
-    mut query: Query<(&mut Text, &EntityCount)>, 
+    mut query: Query<(&mut Text, &EntityCount)>,
     mut entity_query: Query<Entity>,
 ) {
     for (mut text, _entity_count_marker) in &mut query.iter() {
@@ -805,7 +808,10 @@ fn entity_count_system(
         for _ in &mut entity_query.iter() {
             entity_count += 1;
         }
-        text.value = format!("Entities: {}", entity_count);
+        let text_value = format!("Entities: {}", entity_count);
+        if text.value != text_value {
+            text.value = text_value;
+        }
     }
 }
 
@@ -813,7 +819,7 @@ struct ColorMaterialCount;
 
 fn color_material_count_system(
     color_query: Res<Assets<ColorMaterial>>,
-    mut query: Query<(&mut Text, &ColorMaterialCount)>, 
+    mut query: Query<(&mut Text, &ColorMaterialCount)>,
     // mut color_query: Query<color>,
 ) {
     for (mut text, _color_count_marker) in &mut query.iter() {
@@ -821,14 +827,17 @@ fn color_material_count_system(
         for _ in &mut color_query.iter() {
             color_count += 1;
         }
-        text.value = format!("Color Materials: {}", color_count);
+        let text_value = format!("Color Materials: {}", color_count);
+        if text.value != text_value {
+            text.value = text_value;
+        }
     }
 }
 struct ColorHandleCount;
 
 fn color_handle_count_system(
     // color_handle_query: Res<Assets<ColorMaterial>>,
-    mut query: Query<(&mut Text, &ColorHandleCount)>, 
+    mut query: Query<(&mut Text, &ColorHandleCount)>,
     mut color_handle_query: Query<&Handle<ColorMaterial>>,
 ) {
     for (mut text, _color_handle_count_marker) in &mut query.iter() {
@@ -836,7 +845,10 @@ fn color_handle_count_system(
         for _ in &mut color_handle_query.iter() {
             color_handle_count += 1;
         }
-        text.value = format!("Color Handles: {}", color_handle_count);
+        let text_value = format!("Color Handles: {}", color_handle_count);
+        if text.value != text_value {
+            text.value = text_value;
+        }
     }
 }
 
@@ -852,9 +864,9 @@ fn ball_collision_system(
     mut scoreboard: ResMut<Scoreboard>,
     materials: Res<Assets<ColorMaterial>>,
     mut ball_query: Query<(
-        Entity, 
-        &mut Ball, 
-        &Transform, 
+        Entity,
+        &mut Ball,
+        &Transform,
         &Sprite,
         &Handle<ColorMaterial>,
     )>,
@@ -873,40 +885,51 @@ fn ball_collision_system(
         for (..) in &mut ball_query.iter() {
             ball_count += 1;
         }
-        for (ball_entity, mut ball, ball_transform, sprite, ball_color_material_handle) in &mut ball_query.iter() {
+        for (ball_entity, mut ball, ball_transform, sprite, ball_color_material_handle) in
+            &mut ball_query.iter()
+        {
             let ball_size = sprite.size;
 
             // check collision with walls, bricks and paddles
-            for (collider_entity, collider, collider_transform, sprite, _name, collider_color_material_handle) in
-                &mut collider_query.iter()
+            for (
+                collider_entity,
+                collider,
+                collider_transform,
+                sprite,
+                _name,
+                collider_color_material_handle,
+            ) in &mut collider_query.iter()
             {
                 if let Some(collision) = collide(
-                    ball_transform.translation(),
+                    ball_transform.translation,
                     ball_size,
-                    collider_transform.translation(),
+                    collider_transform.translation,
                     sprite.size,
                     &ball.velocity,
                     time.delta_seconds,
                 ) {
                     if let Collider::Paddle = *collider {
                         if collision.y.0 == CollisionY::Top && ball.velocity.y() < 0.0 {
-                            ball.spin = if ball_transform.translation().x()
-                                < collider_transform.translation().x()
+                            ball.spin = if ball_transform.translation.x()
+                                < collider_transform.translation.x()
                             {
                                 Spin::CounterCw
                             } else {
                                 Spin::Clockwise
                             };
                             // TODO: defer this to the movementsystem
-                            ball.last_paddle_offset = ball_transform.translation().x()
-                                - collider_transform.translation().x();
+                            ball.last_paddle_offset = ball_transform.translation.x()
+                                - collider_transform.translation.x();
                         }
                     } else if let Collider::BottomWall = *collider {
-                        let color = materials.get(&ball_color_material_handle).unwrap().color;
-                        commands.insert_one(ball_entity, FadeOut {
-                            fade_out_time: DESPAWN_TIME,
-                            starting_color: color,
-                        });
+                        let color = materials.get(ball_color_material_handle).unwrap().color;
+                        commands.insert_one(
+                            ball_entity,
+                            FadeOut {
+                                fade_out_time: DESPAWN_TIME,
+                                starting_color: color,
+                            },
+                        );
                         commands.remove_one::<Ball>(ball_entity);
                         ball_count -= 1;
                         if ball_count <= 0 {
@@ -915,20 +938,25 @@ fn ball_collision_system(
                         }
                     } else if let Collider::Brick = *collider {
                         // scorable colliders should be despawned and increment the scoreboard on collision
-                        commands.insert_one(collider_entity, FadeOut {
-                            fade_out_time: DESPAWN_TIME,
-                            starting_color: Color::WHITE,
-                        });
+                        commands.insert_one(
+                            collider_entity,
+                            FadeOut {
+                                fade_out_time: DESPAWN_TIME,
+                                starting_color: Color::WHITE,
+                            },
+                        );
                         commands.remove_one::<Collider>(collider_entity);
-                        if let Some(mut brick) =
-                            brick_query.get_mut::<Brick>(collider_entity).ok()
+                        if let Some(mut brick) = brick_query.get_mut::<Brick>(collider_entity).ok()
                         {
                             brick.0 = false;
                         }
                         scoreboard.score += 1;
                     }
 
-                    let color = materials.get(&collider_color_material_handle).unwrap().color;
+                    let color = materials
+                        .get(collider_color_material_handle)
+                        .unwrap()
+                        .color;
                     // TODO: store the entity instead of copying the collider and color
                     ball.collided = Some((collision, *collider, color));
                     // TODO: I think this is a tempfix for the ball escaping the arena, i.e. it can only hit collide with one entity only
@@ -950,7 +978,7 @@ fn change_color_system(
     if *game_state != GameState::Paused {
         for (ball, ball_material_handle) in &mut ball_query.iter() {
             if let Some((_, collider, new_color)) = ball.collided {
-                let ball_material = materials.get_mut(&ball_material_handle).unwrap();
+                let ball_material = materials.get_mut(ball_material_handle).unwrap();
                 let old_color = color_to_vec4(ball_material.color);
                 match collider {
                     Collider::Brick => {
@@ -972,7 +1000,7 @@ fn change_color_system(
                         {
                             for (_paddle, paddle_material_handle) in &mut paddle_query.iter() {
                                 let paddle_material =
-                                    materials.get_mut(&paddle_material_handle).unwrap();
+                                    materials.get_mut(paddle_material_handle).unwrap();
                                 paddle_material.color = old_color.into();
                             }
                         }
@@ -994,21 +1022,22 @@ fn fade_out_system(
     if *game_state != GameState::Paused && *game_state != GameState::Restarting {
         for (entity, mut fade_out, material_handle) in &mut despawn_query.iter() {
             if fade_out.fade_out_time == DESPAWN_TIME {
-                let material = materials.get_mut(&material_handle).unwrap();
+                let material = materials.get_mut(material_handle).unwrap();
                 material.color = fade_out.starting_color;
             }
             fade_out.fade_out_time -= time.delta_seconds;
             if fade_out.fade_out_time > 0.0 {
-                let material = materials.get_mut(&material_handle).unwrap();
+                let material = materials.get_mut(material_handle).unwrap();
                 // let color = color_to_vec4(material.color);
                 let color = color_to_vec4(fade_out.starting_color);
-                material.color =
-                    (color * rgb + Vec4::new(0.0, 0.0, 0.0, fade_out.fade_out_time / DESPAWN_TIME)).into();
+                material.color = (color * rgb
+                    + Vec4::new(0.0, 0.0, 0.0, fade_out.fade_out_time / DESPAWN_TIME))
+                .into();
             } else {
                 // end_game_system (GameState::Restarting) takes precedence on despawning, so that we don't
                 // attempt to despawn the same entity in the same frame (crashes)
                 commands.despawn(entity);
-                materials.remove(&material_handle);
+                materials.remove(material_handle);
             }
         }
     }
@@ -1019,15 +1048,17 @@ fn render_game_state_text_system(
     mut query: Query<(&mut Text, &GameStateText)>,
 ) {
     for (mut text, _game_state_text) in &mut query.iter() {
-        text.value = match *game_state {
+        let text_value = match *game_state {
             GameState::Starting => "Press Space to start",
             GameState::Playing => "",
             GameState::Restarting => "",
             GameState::Paused => "PAUSED",
             GameState::Win => "YOU WIN! :D",
             GameState::Lose => "YOU LOSE :(",
+        }.into();
+        if text.value != text_value {
+            text.value = text_value;
         }
-        .into();
     }
 }
 
